@@ -1,15 +1,20 @@
-const openai = require('../config/openai');
-const pool = require('../config/db');
+import openai from '../config/openai.js';
+import pool from '../config/db.js';
+
+const EMBEDDING_MODEL = 'text-embedding-3-small';
 
 /**
- * Given a user query and notebookId:
- * 1. Embeds the query
- * 2. Finds top-K similar chunks via pgvector cosine similarity
- * 3. Returns chunks with citation metadata
+ * Embeds a query and retrieves the top-K most similar chunks
+ * from a given notebook using pgvector cosine similarity.
+ *
+ * @param {string} query
+ * @param {string} notebookId
+ * @param {number} topK
+ * @returns {Array} chunks with citation metadata
  */
-const retrieve = async (query, notebookId, topK = 6) => {
+export const retrieve = async (query, notebookId, topK = 6) => {
   const embResponse = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
+    model: EMBEDDING_MODEL,
     input: query,
   });
   const queryEmbedding = embResponse.data[0].embedding;
@@ -21,8 +26,9 @@ const retrieve = async (query, notebookId, topK = 6) => {
        c.page_number,
        c.timestamp_start,
        c.timestamp_end,
-       s.title AS source_title,
-       s.id    AS source_id,
+       c.chunk_index,
+       s.title    AS source_title,
+       s.id       AS source_id,
        s.file_type,
        1 - (c.embedding <=> $1::vector) AS similarity
      FROM chunks c
@@ -38,29 +44,45 @@ const retrieve = async (query, notebookId, topK = 6) => {
 };
 
 /**
- * Builds the system prompt with retrieved context and citation markers.
+ * Builds a grounded system prompt injecting retrieved context
+ * with citation labels for each chunk.
+ *
+ * @param {Array} retrievedChunks — from retrieve()
+ * @returns {string} system prompt
  */
-const buildGroundedPrompt = (retrievedChunks) => {
-  const contextBlocks = retrievedChunks.map((chunk, i) => {
-    const citationLabel = chunk.file_type === 'pdf'
-      ? `[Source: ${chunk.source_title}, Page ${chunk.page_number}]`
-      : `[Source: ${chunk.source_title} @ ${formatTime(chunk.timestamp_start)}]`;
+export const buildGroundedPrompt = (retrievedChunks) => {
+  if (!retrievedChunks.length) {
+    return `You are a helpful research assistant. 
+No relevant source content was found for this query. 
+Tell the user you couldn't find relevant information in their uploaded sources.`;
+  }
 
-    return `Context ${i + 1} ${citationLabel}:\n${chunk.content}`;
+  const contextBlocks = retrievedChunks.map((chunk, i) => {
+    const label = chunk.file_type === 'pdf'
+      ? `[Source ${i + 1}: "${chunk.source_title}", Page ${chunk.page_number ?? '?'}]`
+      : `[Source ${i + 1}: "${chunk.source_title}" @ ${formatTimestamp(chunk.timestamp_start)}]`;
+
+    return `${label}\n${chunk.content}`;
   });
 
-  return `You are a helpful research assistant. Answer the user's question using ONLY the context provided below.
-For every claim you make, cite the source using the exact label shown (e.g. [Source: File.pdf, Page 3]).
-If the answer is not found in the context, say "I don't have enough information in the provided sources."
+  return `You are a helpful research assistant with access to the user's uploaded sources.
 
+INSTRUCTIONS:
+1. Answer using ONLY the context provided below.
+2. Cite every claim using the exact source label shown (e.g. [Source 1: "filename.pdf", Page 3]).
+3. If multiple sources support a claim, cite all of them.
+4. If the answer is not in the context, say: "I couldn't find that information in your sources."
+5. Be concise but thorough. Use markdown formatting.
+
+SOURCES:
 ${contextBlocks.join('\n\n---\n\n')}`;
 };
 
-const formatTime = (seconds) => {
-  if (seconds == null) return '?';
+// ─── Helpers ─────────────────────────────────────────────────────────
+
+const formatTimestamp = (seconds) => {
+  if (seconds == null) return '??:??';
   const m = Math.floor(seconds / 60).toString().padStart(2, '0');
   const s = Math.floor(seconds % 60).toString().padStart(2, '0');
   return `${m}:${s}`;
 };
-
-module.exports = { retrieve, buildGroundedPrompt };

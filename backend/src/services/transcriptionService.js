@@ -1,56 +1,75 @@
-const { execSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const openai = require('../config/openai');
+import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { fileURLToPath } from 'url';
+import openai from '../config/openai.js';
 
-const CHUNK_DURATION = 60;  // seconds per chunk for long audio
+const WORDS_PER_CHUNK = 400;
+const MAX_FILE_SIZE = 24 * 1024 * 1024; // 24 MB — Whisper API limit
 
 /**
- * Transcribes MP3 or MP4 using Whisper API.
- * For MP4: extracts audio track first using FFmpeg.
- * Returns: [{ start: 0.0, end: 3.2, text: "Hello world" }]
+ * Transcribes MP3 or MP4 using OpenAI Whisper.
+ * For MP4: strips audio track first with FFmpeg.
+ *
+ * @param {string} filePath  — local temp file path
+ * @param {string} fileType  — 'mp3' | 'mp4'
+ * @returns {Array<{start: number, end: number, text: string}>}
  */
-const transcribe = async (filePath, fileType) => {
+export const transcribe = async (filePath, fileType) => {
   let audioPath = filePath;
+  let didExtract = false;
 
-  // Extract audio from video
-  if (fileType === 'mp4') {
-    audioPath = filePath.replace('.mp4', '_audio.mp3');
-    execSync(`ffmpeg -i "${filePath}" -q:a 0 -map a "${audioPath}" -y`);
+  try {
+    // Extract audio track from video
+    if (fileType === 'mp4') {
+      audioPath = path.join(os.tmpdir(), `${Date.now()}_audio.mp3`);
+      didExtract = true;
+      execSync(
+        `ffmpeg -i "${filePath}" -vn -acodec libmp3lame -q:a 2 "${audioPath}" -y`,
+        { stdio: 'pipe' }
+      );
+    }
+
+    // Check file size — Whisper API has 25 MB limit
+    const { size } = fs.statSync(audioPath);
+    if (size > MAX_FILE_SIZE) {
+      throw new Error(`Audio file too large (${(size / 1024 / 1024).toFixed(1)} MB). Max 24 MB.`);
+    }
+
+    const audioStream = fs.createReadStream(audioPath);
+
+    const response = await openai.audio.transcriptions.create({
+      file: audioStream,
+      model: 'whisper-1',
+      response_format: 'verbose_json',
+      timestamp_granularities: ['segment'],
+    });
+
+    return (response.segments || []).map(seg => ({
+      start: parseFloat(seg.start.toFixed(2)),
+      end: parseFloat(seg.end.toFixed(2)),
+      text: seg.text.trim(),
+    }));
+
+  } finally {
+    // Clean up extracted audio file
+    if (didExtract && fs.existsSync(audioPath)) {
+      fs.unlinkSync(audioPath);
+    }
   }
-
-  const audioStream = fs.createReadStream(audioPath);
-
-  const response = await openai.audio.transcriptions.create({
-    file: audioStream,
-    model: 'whisper-1',
-    response_format: 'verbose_json',  // gives us timestamps
-    timestamp_granularities: ['segment'],
-  });
-
-  // Clean up extracted audio
-  if (fileType === 'mp4' && fs.existsSync(audioPath)) {
-    fs.unlinkSync(audioPath);
-  }
-
-  // Map Whisper segments to our format
-  return (response.segments || []).map((seg) => ({
-    start: seg.start,
-    end: seg.end,
-    text: seg.text.trim(),
-  }));
 };
 
 /**
- * Groups transcript segments into chunks (~500 words).
- * Returns: [{ content, timestamp_start, timestamp_end, chunk_index }]
+ * Groups transcript segments into overlapping text chunks.
+ * @param {Array<{start,end,text}>} transcript
+ * @returns {Array<{content, timestamp_start, timestamp_end, page_number, chunk_index}>}
  */
-const buildChunks = (transcript, sourceId) => {
+export const buildChunks = (transcript) => {
   const chunks = [];
   let current = [];
   let wordCount = 0;
   let chunkIndex = 0;
-  const WORDS_PER_CHUNK = 400;
 
   for (const seg of transcript) {
     current.push(seg);
@@ -58,22 +77,22 @@ const buildChunks = (transcript, sourceId) => {
 
     if (wordCount >= WORDS_PER_CHUNK) {
       chunks.push({
-        content: current.map((s) => s.text).join(' '),
+        content: current.map(s => s.text).join(' '),
         timestamp_start: current[0].start,
         timestamp_end: current.at(-1).end,
         page_number: null,
         chunk_index: chunkIndex++,
       });
-      // overlap: keep last 2 segments
+      // Keep last 2 segments as overlap
       current = current.slice(-2);
       wordCount = current.reduce((acc, s) => acc + s.text.split(/\s+/).length, 0);
     }
   }
 
-  // Push remaining
+  // Flush remaining segments
   if (current.length) {
     chunks.push({
-      content: current.map((s) => s.text).join(' '),
+      content: current.map(s => s.text).join(' '),
       timestamp_start: current[0].start,
       timestamp_end: current.at(-1).end,
       page_number: null,
@@ -83,5 +102,3 @@ const buildChunks = (transcript, sourceId) => {
 
   return chunks;
 };
-
-module.exports = { transcribe, buildChunks };

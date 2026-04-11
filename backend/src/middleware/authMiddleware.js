@@ -1,20 +1,20 @@
-const admin = require('../config/firebase');
-const pool = require('../config/db');
+import { firebaseAuth } from '../config/firebase.js';
+import pool from '../config/db.js';
 
-const authMiddleware = async (req, res, next) => {
+export const authMiddleware = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid Authorization header.' });
   }
 
   const token = authHeader.split(' ')[1];
 
   try {
-    // Verify Firebase JWT
-    const decoded = await admin.auth().verifyIdToken(token);
+    // 1. Verify Firebase ID token
+    const decoded = await firebaseAuth.verifyIdToken(token);
 
-    // Upsert user in PostgreSQL
+    // 2. Upsert user in PostgreSQL (sync Firebase → our DB)
     const { rows } = await pool.query(
       `INSERT INTO users (firebase_uid, email, display_name, avatar_url)
        VALUES ($1, $2, $3, $4)
@@ -25,15 +25,23 @@ const authMiddleware = async (req, res, next) => {
          avatar_url   = EXCLUDED.avatar_url,
          updated_at   = NOW()
        RETURNING *`,
-      [decoded.uid, decoded.email, decoded.name || null, decoded.picture || null]
+      [
+        decoded.uid,
+        decoded.email ?? '',
+        decoded.name ?? null,
+        decoded.picture ?? null,
+      ]
     );
 
-    req.user = rows[0]; // full DB user row
+    req.user = rows[0];       // Full DB user row
+    req.firebaseUid = decoded.uid;   // Raw Firebase UID
     next();
   } catch (err) {
-    console.error('Auth error:', err.message);
-    return res.status(401).json({ error: 'Invalid or expired token' });
+    console.error('Auth middleware error:', err.message);
+
+    if (err.code === 'auth/id-token-expired') {
+      return res.status(401).json({ error: 'Token expired. Please sign in again.' });
+    }
+    return res.status(401).json({ error: 'Invalid or expired token.' });
   }
 };
-
-module.exports = authMiddleware;

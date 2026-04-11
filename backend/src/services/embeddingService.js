@@ -1,49 +1,54 @@
-const openai = require('../config/openai');
-const pool = require('../config/db');
+import openai from '../config/openai.js';
+import pool from '../config/db.js';
 
 const EMBEDDING_MODEL = 'text-embedding-3-small';
-const BATCH_SIZE = 20; // embed 20 chunks at a time
+const BATCH_SIZE = 20; // embed N chunks per API call
 
 /**
- * Generates embeddings for all chunks and inserts into DB.
+ * Generates OpenAI embeddings for all chunks and bulk-inserts into DB.
+ *
+ * @param {Array}  chunks      — from pdfService.buildChunks or transcriptionService.buildChunks
+ * @param {string} sourceId    — UUID
+ * @param {string} notebookId  — UUID
  */
-const embedAndStore = async (chunks, sourceId, notebookId) => {
+export const embedAndStore = async (chunks, sourceId, notebookId) => {
+  if (!chunks.length) {
+    console.warn(`embedAndStore: no chunks to embed for source ${sourceId}`);
+    return;
+  }
+
   for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
     const batch = chunks.slice(i, i + BATCH_SIZE);
-    const texts = batch.map((c) => c.content);
+    const texts = batch.map(c => c.content);
 
     const response = await openai.embeddings.create({
       model: EMBEDDING_MODEL,
       input: texts,
     });
 
-    const values = batch.map((chunk, j) => ({
-      ...chunk,
-      embedding: response.data[j].embedding,
-    }));
+    // Insert each chunk with its embedding
+    for (let j = 0; j < batch.length; j++) {
+      const chunk = batch[j];
+      const embedding = response.data[j].embedding;
 
-    // Bulk insert
-    for (const v of values) {
       await pool.query(
         `INSERT INTO chunks
            (source_id, notebook_id, chunk_index, content,
             page_number, timestamp_start, timestamp_end, embedding)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)`,
         [
           sourceId,
           notebookId,
-          v.chunk_index,
-          v.content,
-          v.page_number,
-          v.timestamp_start,
-          v.timestamp_end,
-          JSON.stringify(v.embedding),
+          chunk.chunk_index,
+          chunk.content,
+          chunk.page_number ?? null,
+          chunk.timestamp_start ?? null,
+          chunk.timestamp_end ?? null,
+          JSON.stringify(embedding),
         ]
       );
     }
 
-    console.log(`  Embedded chunks ${i}–${i + batch.length - 1}`);
+    console.log(`  ✅ Embedded chunks ${i}–${i + batch.length - 1} of ${chunks.length}`);
   }
 };
-
-module.exports = { embedAndStore };

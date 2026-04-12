@@ -1,4 +1,4 @@
-import api from '../../../xyz/axiosInstance.js';
+import api from '../api/axiosInstance';
 
 // ─── Notebooks ───────────────────────────────────────────────────────
 export const notebooksApi = {

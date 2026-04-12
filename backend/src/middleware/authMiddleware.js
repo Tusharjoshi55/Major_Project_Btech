@@ -5,16 +5,23 @@ export const authMiddleware = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader?.startsWith('Bearer ')) {
+    console.error("❌ Missing Authorization header");
     return res.status(401).json({ error: 'Missing or invalid Authorization header.' });
   }
 
   const token = authHeader.split(' ')[1];
 
+  let decoded;
   try {
-    // 1. Verify Firebase ID token
-    const decoded = await firebaseAuth.verifyIdToken(token);
+    // Verify Firebase ID token
+    decoded = await firebaseAuth.verifyIdToken(token);
+  } catch (err) {
+    console.error('❌ Auth middleware error:', err.message);
+    return res.status(401).json({ error: 'Invalid or expired token.' });
+  }
 
-    // 2. Upsert user in PostgreSQL (sync Firebase → our DB)
+  try {
+    // Upsert user in PostgreSQL
     const { rows } = await pool.query(
       `INSERT INTO users (firebase_uid, email, display_name, avatar_url)
        VALUES ($1, $2, $3, $4)
@@ -33,15 +40,12 @@ export const authMiddleware = async (req, res, next) => {
       ]
     );
 
-    req.user = rows[0];       // Full DB user row
-    req.firebaseUid = decoded.uid;   // Raw Firebase UID
-    next();
-  } catch (err) {
-    console.error('Auth middleware error:', err.message);
+    req.user = rows[0];
+    req.firebaseUid = decoded.uid;
 
-    if (err.code === 'auth/id-token-expired') {
-      return res.status(401).json({ error: 'Token expired. Please sign in again.' });
-    }
-    return res.status(401).json({ error: 'Invalid or expired token.' });
+    next();
+  } catch (dbErr) {
+    console.error('❌ DB error in auth:', dbErr.message);
+    return res.status(500).json({ error: 'Internal server error processing authentication.' });
   }
 };

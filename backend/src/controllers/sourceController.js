@@ -4,7 +4,7 @@ import fs   from 'fs';
 import { fileURLToPath } from 'url';
 
 import pool               from '../config/db.js';
-import { firebaseStorage } from '../config/firebase.js';
+import supabase           from '../config/supabase.js';
 import { processSource }  from '../services/uploadService.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -42,19 +42,39 @@ export const uploadSource = async (req, res, next) => {
       return res.status(404).json({ error: 'Notebook not found.' });
     }
 
-    // Upload to Firebase Storage
-    const bucket   = firebaseStorage.bucket();
+    // Upload to Supabase Storage
+    const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || 'major_project';
+    console.log(`🚀 [DEBUG] Uploading to Supabase Bucket: ${SUPABASE_BUCKET}`);
+    console.log(`🔗 [DEBUG] Supabase URL: ${process.env.SUPABASE_URL}`);
+    
     const destPath = `sources/${req.user.id}/${Date.now()}_${file.originalname}`;
+    const fileBody = fs.readFileSync(file.path);
 
-    await bucket.upload(file.path, {
-      destination: destPath,
-      metadata: { contentType: file.mimetype },
-    });
+    const { error: uploadError } = await supabase.storage
+      .from(SUPABASE_BUCKET)
+      .upload(destPath, fileBody, {
+        contentType: file.mimetype,
+        upsert: false
+      });
 
-    const [signedUrl] = await bucket.file(destPath).getSignedUrl({
-      action:  'read',
-      expires: '01-01-2100',
-    });
+    if (uploadError) {
+      fs.unlinkSync(file.path);
+      return res.status(500).json({ error: `Bucket upload failed: ${uploadError.message}` });
+    }
+
+    // Get signed URL (1 year expiration)
+    const { data: signData, error: signError } = await supabase.storage
+      .from(SUPABASE_BUCKET)
+      .createSignedUrl(destPath, 60 * 60 * 24 * 365);
+
+    if (signError) {
+      // Small cleanup — we should ideally delete the bucket file if sign fails
+      await supabase.storage.from(SUPABASE_BUCKET).remove([destPath]);
+      fs.unlinkSync(file.path);
+      return res.status(500).json({ error: `Shared URL failed: ${signError.message}` });
+    }
+
+    const signedUrl = signData.signedUrl;
 
     // Insert source row (status = 'pending')
     let source;
@@ -68,8 +88,9 @@ export const uploadSource = async (req, res, next) => {
       );
       source = rows[0];
     } catch (dbErr) {
-      // Cleanup Firebase if DB fails
-      await bucket.file(destPath).delete().catch(() => {});
+      // Cleanup Supabase if DB fails
+      const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || 'major_project';
+      await supabase.storage.from(SUPABASE_BUCKET).remove([destPath]);
       throw dbErr;
     }
 
@@ -137,9 +158,12 @@ export const deleteSource = async (req, res, next) => {
     );
     if (!rows.length) return res.status(404).json({ error: 'Source not found.' });
 
-    // Remove from Firebase Storage
+    // Remove from Supabase Storage
     try {
-      await firebaseStorage.bucket().file(rows[0].storage_path).delete();
+      const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || 'major_project';
+      await supabase.storage
+        .from(SUPABASE_BUCKET)
+        .remove([rows[0].storage_path]);
     } catch (_) { /* ignore if file doesn't exist */ }
 
     // Cascades to chunks via FK

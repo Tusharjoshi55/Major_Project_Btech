@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { firebaseStorage } from '../config/firebase.js';
 
 // GET /api/notebooks
 export const getNotebooks = async (req, res, next) => {
@@ -42,7 +43,11 @@ export const getNotebook = async (req, res, next) => {
 // POST /api/notebooks
 export const createNotebook = async (req, res, next) => {
   try {
-    const { title = 'Untitled Notebook', description = '' } = req.body;
+    let { title = 'Untitled Notebook', description = '' } = req.body;
+    
+    title = title.trim();
+    if (!title) title = 'Untitled Notebook';
+
     const { rows } = await pool.query(
       `INSERT INTO notebooks (user_id, title, description)
        VALUES ($1, $2, $3) RETURNING *`,
@@ -52,30 +57,69 @@ export const createNotebook = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// PATCH /api/notebooks/:id
+// PATCH /api/notebooks/:id — partial update
 export const updateNotebook = async (req, res, next) => {
   try {
     const { title, description } = req.body;
+
+    // Build a dynamic SET clause from only the provided fields
+    const fields = [];
+    const values = [];
+    let idx = 1;
+
+    if (title !== undefined) { 
+      const t = title.trim();
+      fields.push(`title=$${idx++}`); 
+      values.push(t || 'Untitled Notebook'); 
+    }
+    if (description !== undefined) { 
+      fields.push(`description=$${idx++}`); 
+      values.push(description); 
+    }
+
+    if (!fields.length) {
+      return res.status(400).json({ error: 'No fields to update.' });
+    }
+
+    fields.push(`updated_at=NOW()`);
+    
     const { rows } = await pool.query(
-      `UPDATE notebooks
-       SET title=$1, description=$2, updated_at=NOW()
-       WHERE id=$3 AND user_id=$4
+      `UPDATE notebooks SET ${fields.join(', ')}
+       WHERE id=$${idx} AND user_id=$${idx + 1}
        RETURNING *`,
-      [title, description, req.params.id, req.user.id]
+      [...values, req.params.id, req.user.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Notebook not found.' });
     res.json(rows[0]);
   } catch (err) { next(err); }
 };
 
+
 // DELETE /api/notebooks/:id
 export const deleteNotebook = async (req, res, next) => {
   try {
+    // 1. Get all sources to clean up Firebase Storage
+    const { rows: sources } = await pool.query(
+      `SELECT storage_path FROM sources WHERE notebook_id=$1 AND user_id=$2`,
+      [req.params.id, req.user.id]
+    );
+
+    // 2. Delete files from Firebase asynchronously
+    const bucket = firebaseStorage.bucket();
+    const deletePromises = sources
+      .filter(s => s.storage_path)
+      .map(s => bucket.file(s.storage_path).delete().catch(() => {}));
+    
+    await Promise.all(deletePromises);
+
+    // 3. Delete from DB (cascades to sources, notes, etc.)
     const { rowCount } = await pool.query(
       `DELETE FROM notebooks WHERE id=$1 AND user_id=$2`,
       [req.params.id, req.user.id]
     );
+    
     if (!rowCount) return res.status(404).json({ error: 'Notebook not found.' });
-    res.json({ success: true });
+    res.json({ success: true, message: 'Notebook and all associated data deleted.' });
   } catch (err) { next(err); }
 };
+

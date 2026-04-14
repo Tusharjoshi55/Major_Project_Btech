@@ -11,8 +11,11 @@ import {
 
 const router = Router();
 
-router.get('/:notebookId', getNotes);
+// ⚠️ CRITICAL: /single/:noteId MUST be before /:notebookId
+// otherwise Express matches "single" as a notebookId value
 router.get('/single/:noteId', getNote);
+router.get('/:notebookId', getNotes);
+
 
 router.post('/',
   body('notebookId').isUUID(),

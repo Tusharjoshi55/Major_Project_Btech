@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { chatApi } from '../api/index.js';
 
 export const useChatSessions = (notebookId) => {
@@ -22,11 +22,14 @@ export const useChat = (notebookId) => {
   const qc = useQueryClient();
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages]   = useState([]);
+  // Ref keeps the pending user message text available in onSuccess
+  const pendingMessageRef = useRef(null);
 
   const sendMutation = useMutation({
     mutationFn: (message) => chatApi.send(notebookId, message, sessionId),
     onMutate: async (message) => {
-      // Optimistically add user message
+      pendingMessageRef.current = message;
+      // Optimistically add user message with a temp ID
       setMessages(prev => [...prev, {
         id: `temp-${Date.now()}`,
         role: 'user',
@@ -36,23 +39,38 @@ export const useChat = (notebookId) => {
       }]);
     },
     onSuccess: (data) => {
-      // Update session ID if new session was created
       if (!sessionId) setSessionId(data.sessionId);
 
-      // Replace temp message + add assistant reply
+      // Build a stable user message (replacing the temp one)
+      const userMessage = {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: pendingMessageRef.current ?? '',
+        citations: [],
+        created_at: new Date().toISOString(),
+      };
+
+      // The backend returns { sessionId, reply, citations, tokensUsed, message }
+      // data.message is the saved assistant DB row
+      const assistantMessage = data.message ?? {
+        id: `ai-${Date.now()}`,
+        role: 'assistant',
+        content: data.reply,
+        citations: data.citations ?? [],
+        created_at: new Date().toISOString(),
+      };
+
       setMessages(prev => {
-        const withoutTemp = prev.filter(m => !m.id.startsWith('temp-'));
-        return [
-          ...withoutTemp,
-          data.message,
-        ];
+        const withoutTemp = prev.filter(m => !m.id?.startsWith('temp-'));
+        return [...withoutTemp, userMessage, assistantMessage];
       });
 
+      pendingMessageRef.current = null;
       qc.invalidateQueries({ queryKey: ['chat-sessions', notebookId] });
     },
     onError: () => {
-      // Remove optimistic message on error
-      setMessages(prev => prev.filter(m => !m.id.startsWith('temp-')));
+      setMessages(prev => prev.filter(m => !m.id?.startsWith('temp-')));
+      pendingMessageRef.current = null;
     },
   });
 

@@ -1,58 +1,79 @@
-import { useState }          from 'react';
-import { useParams, Link }   from 'react-router-dom';
-import { useNotebook }       from '../hooks/useNotebooks.js';
+import { useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { toast } from 'sonner';
+import { useNotebook } from '../hooks/useNotebooks.js';
 import { useSources, useUploadSource, useDeleteSource } from '../hooks/useSources.js';
-import { useChat }           from '../hooks/useChat.js';
+import { useChat } from '../hooks/useChat.js';
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '../hooks/useNotes.js';
-import { audioApi }          from '../api/index.js';
+import { audioApi } from '../api/index.js';
 
-import { Button }            from '@/components/ui/button';
-import { Input }             from '@/components/ui/input';
-import { Textarea }          from '@/components/ui/textarea';
-import { Badge }             from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import {
   Tabs, TabsContent, TabsList, TabsTrigger,
 } from '@/components/ui/tabs';
-import { ScrollArea }        from '@/components/ui/scroll-area';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   FileText, Music, Video, Trash2,
   Upload, Send, Plus, ChevronLeft,
   Loader2, Radio,
 } from 'lucide-react';
-import ReactMarkdown         from 'react-markdown';
+import ReactMarkdown from 'react-markdown';
+import ThemeToggle from '../components/ThemeToggle.jsx';
 
 const FILE_ICONS = { pdf: FileText, mp3: Music, mp4: Video };
 const STATUS_COLORS = {
-  pending:    'secondary',
+  pending: 'secondary',
   processing: 'outline',
-  ready:      'default',
-  error:      'destructive',
+  ready: 'default',
+  error: 'destructive',
 };
 
 export default function NotebookPage() {
-  const { id: notebookId }  = useParams();
-  const { data: notebook }  = useNotebook(notebookId);
+  const { id: notebookId } = useParams();
+  const { data: notebook } = useNotebook(notebookId);
   const { data: sources = [], isLoading: sourcesLoading } = useSources(notebookId);
-  const { data: notes   = [] } = useNotes(notebookId);
+  const { data: notes = [] } = useNotes(notebookId);
 
   const uploadMutation = useUploadSource(notebookId);
-  const deleteSrc      = useDeleteSource(notebookId);
-  const createNote     = useCreateNote(notebookId);
-  const updateNote     = useUpdateNote(notebookId);
-  const deleteNote     = useDeleteNote(notebookId);
+  const deleteSrc = useDeleteSource(notebookId);
+  const createNote = useCreateNote(notebookId);
+  const updateNote = useUpdateNote(notebookId);
+  const deleteNote = useDeleteNote(notebookId);
 
   const { messages, isSending, sendMessage, sessionId } = useChat(notebookId);
 
-  const [chatInput, setChatInput]     = useState('');
+  const [chatInput, setChatInput] = useState('');
   const [editingNote, setEditingNote] = useState(null); // { id, title, content }
-  const [overview, setOverview]       = useState(null);
+  const [noteMode, setNoteMode] = useState('edit'); // 'edit' or 'preview'
+  const [overview, setOverview] = useState(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   // ── Upload handler ─────────────────────────────────────────────────
   const handleFileChange = (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
     if (file) uploadMutation.mutate(file);
-    e.target.value = '';
+    if (e.target) e.target.value = '';
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) uploadMutation.mutate(file);
   };
 
   // ── Chat send ──────────────────────────────────────────────────────
@@ -69,8 +90,9 @@ export default function NotebookPage() {
     try {
       const data = await audioApi.generateOverview(notebookId);
       setOverview(data);
+      toast.success('Audio overview generated!');
     } catch (err) {
-      alert('Failed to generate overview: ' + err.message);
+      toast.error('Failed to generate overview: ' + (err.response?.data?.error ?? err.message));
     } finally {
       setOverviewLoading(false);
     }
@@ -82,13 +104,13 @@ export default function NotebookPage() {
     if (editingNote.id === 'new') {
       await createNote.mutateAsync({
         notebookId,
-        title:   editingNote.title,
+        title: editingNote.title,
         content: editingNote.content,
       });
     } else {
       await updateNote.mutateAsync({
         noteId: editingNote.id,
-        data:   { title: editingNote.title, content: editingNote.content },
+        data: { title: editingNote.title, content: editingNote.content },
       });
     }
     setEditingNote(null);
@@ -113,17 +135,20 @@ export default function NotebookPage() {
             <p className="text-xs text-muted-foreground truncate">{notebook.description}</p>
           )}
         </div>
-        <Button
-          variant="outline" size="sm"
-          onClick={handleOverview}
-          disabled={overviewLoading || sources.filter(s => s.status === 'ready').length === 0}
-        >
-          {overviewLoading
-            ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-            : <Radio className="h-3.5 w-3.5 mr-1.5" />
-          }
-          Audio Overview
-        </Button>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <Button
+            variant="outline" size="sm"
+            onClick={handleOverview}
+            disabled={overviewLoading || sources.filter(s => s.status === 'ready').length === 0}
+          >
+            {overviewLoading
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+              : <Radio className="h-3.5 w-3.5 mr-1.5" />
+            }
+            Audio Overview
+          </Button>
+        </div>
       </header>
 
       {/* Audio overview banner */}
@@ -136,7 +161,7 @@ export default function NotebookPage() {
             <Button variant="ghost" size="sm" onClick={() => setOverview(null)}>✕</Button>
           </div>
           <div className="space-y-1.5">
-            {overview.turns.map((turn, i) => (
+            {(overview.turns ?? []).map((turn, i) => (
               <div key={i} className="flex gap-2 text-sm">
                 <span className={`font-semibold shrink-0 ${turn.speaker === 'ALEX' ? 'text-blue-600' : 'text-emerald-600'}`}>
                   {turn.speaker}:
@@ -144,6 +169,9 @@ export default function NotebookPage() {
                 <span className="text-muted-foreground">{turn.text}</span>
               </div>
             ))}
+            {(!overview.turns || overview.turns.length === 0) && (
+              <p className="text-sm text-muted-foreground whitespace-pre-wrap">{overview.script}</p>
+            )}
           </div>
         </div>
       )}
@@ -151,7 +179,20 @@ export default function NotebookPage() {
       {/* Main area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel — Sources */}
-        <aside className="w-64 border-r flex flex-col shrink-0">
+        <aside
+          className={`w-64 border-r flex flex-col shrink-0 relative transition-colors duration-200 ${isDragging ? 'bg-primary/5 border-primary/50 border-dashed' : ''}`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {isDragging && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm pointer-events-none">
+              <div className="flex flex-col items-center text-primary">
+                <Upload className="h-10 w-10 mb-2 animate-bounce" />
+                <span className="font-medium">Drop file to upload</span>
+              </div>
+            </div>
+          )}
           <div className="px-4 py-3 border-b flex items-center justify-between">
             <span className="text-sm font-semibold">Sources</span>
             <label className="cursor-pointer">
@@ -188,7 +229,7 @@ export default function NotebookPage() {
             <div className="p-2 space-y-1">
               {sourcesLoading ? (
                 <div className="space-y-2 p-2">
-                  {[1,2,3].map(i => <div key={i} className="h-10 rounded bg-muted animate-pulse" />)}
+                  {[1, 2, 3].map(i => <div key={i} className="h-10 rounded bg-muted animate-pulse" />)}
                 </div>
               ) : sources.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-8 px-4">
@@ -305,31 +346,63 @@ export default function NotebookPage() {
               <div className="flex-1 flex flex-col p-4 overflow-hidden">
                 {editingNote ? (
                   <>
-                    <Input
-                      className="mb-2 font-semibold"
-                      placeholder="Note title"
-                      value={editingNote.title}
-                      onChange={e => setEditingNote(n => ({ ...n, title: e.target.value }))}
-                    />
-                    <Textarea
-                      className="flex-1 resize-none font-mono text-sm"
-                      placeholder="Write in Markdown…"
-                      value={editingNote.content}
-                      onChange={e => setEditingNote(n => ({ ...n, content: e.target.value }))}
-                    />
-                    <div className="flex gap-2 mt-3">
-                      <Button size="sm" onClick={handleSaveNote}>Save</Button>
-                      <Button size="sm" variant="outline" onClick={() => setEditingNote(null)}>Cancel</Button>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Input
+                        className="font-semibold text-lg border-transparent px-2 hover:border-input focus-visible:ring-1 bg-transparent"
+                        placeholder="Untitled Note"
+                        value={editingNote.title}
+                        onChange={e => setEditingNote(n => ({ ...n, title: e.target.value }))}
+                      />
+                      <Tabs value={noteMode} onValueChange={setNoteMode} className="w-[120px]">
+                        <TabsList className="grid w-full grid-cols-2">
+                          <TabsTrigger value="edit" className="text-xs">Edit</TabsTrigger>
+                          <TabsTrigger value="preview" className="text-xs">Pre</TabsTrigger>
+                        </TabsList>
+                      </Tabs>
+                    </div>
+
+                    {noteMode === 'edit' ? (
+                      <Textarea
+                        className="flex-1 resize-none font-mono text-sm leading-relaxed p-4 bg-muted/20 border-border/50"
+                        placeholder="Write in Markdown…"
+                        value={editingNote.content}
+                        autoFocus
+                        onChange={e => setEditingNote(n => ({ ...n, content: e.target.value }))}
+                      />
+                    ) : (
+                      <ScrollArea className="flex-1 p-4 border rounded-md bg-muted/5 border-border/50">
+                        <ReactMarkdown
+                          className="prose prose-sm dark:prose-invert max-w-none"
+                          components={{
+                            code: ({ node, inline, className, children, ...props }) => {
+                              const match = /language-(\w+)/.exec(className || '')
+                              return !inline ? (
+                                <div className="rounded-md overflow-hidden bg-muted/50 border my-4">
+                                  <div className="px-3 py-1 bg-muted text-xs text-muted-foreground font-mono">{match?.[1] || 'code'}</div>
+                                  <div className="p-3 overflow-x-auto"><code {...props}>{children}</code></div>
+                                </div>
+                              ) : <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[0.9em]" {...props}>{children}</code>
+                            }
+                          }}
+                        >
+                          {editingNote.content || '*Empty note*'}
+                        </ReactMarkdown>
+                      </ScrollArea>
+                    )}
+
+                    <div className="flex items-center gap-2 mt-4 pt-3 border-t">
+                      <Button size="sm" onClick={handleSaveNote} className="px-6">Save Note</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingNote(null)}>Cancel</Button>
                       {editingNote.id !== 'new' && (
                         <Button
                           size="sm" variant="ghost"
-                          className="ml-auto text-destructive"
+                          className="ml-auto text-destructive hover:text-destructive hover:bg-destructive/10"
                           onClick={async () => {
                             await deleteNote.mutateAsync(editingNote.id);
                             setEditingNote(null);
                           }}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="h-4 w-4 mr-2" /> Delete
                         </Button>
                       )}
                     </div>
@@ -352,40 +425,66 @@ export default function NotebookPage() {
 function ChatMessage({ message }) {
   const isUser = message.role === 'user';
   return (
-    <div className={`flex gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
-      <div className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${isUser ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-        {isUser ? 'U' : 'AI'}
-      </div>
-      <div className={`max-w-[75%] space-y-1 ${isUser ? 'items-end' : 'items-start'} flex flex-col`}>
-        <div className={`rounded-lg px-3 py-2 text-sm ${isUser ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
+    <div className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'} mb-6`}>
+      <div className={`flex max-w-[85%] md:max-w-[75%] gap-4 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+        <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-sm font-semibold select-none ${isUser ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary border border-primary/20'}`}>
+          {isUser ? 'U' : 'AI'}
+        </div>
+
+        <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} gap-2 min-w-0`}>
           {isUser ? (
-            message.content
-          ) : (
-            <ReactMarkdown
-              className="prose prose-sm dark:prose-invert max-w-none"
-              components={{ p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p> }}
-            >
+            <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap shadow-sm">
               {message.content}
-            </ReactMarkdown>
+            </div>
+          ) : (
+            <div className="text-[15px] leading-relaxed text-foreground mt-1 w-full">
+              <ReactMarkdown
+                className="prose prose-sm dark:prose-invert max-w-none break-words"
+                components={{
+                  p: ({ children }) => <p className="mb-4 last:mb-0 leading-7">{children}</p>,
+                  code: ({ node, inline, className, children, ...props }) => {
+                    const match = /language-(\w+)/.exec(className || '')
+                    return !inline ? (
+                      <div className="mt-2 mb-4 rounded-md overflow-hidden bg-muted/50 border">
+                        <div className="px-3 py-1.5 bg-muted text-xs text-muted-foreground font-mono flex items-center">{match?.[1] || 'code'}</div>
+                        <div className="p-3 overflow-x-auto">
+                          <code className="text-sm font-mono" {...props}>
+                            {children}
+                          </code>
+                        </div>
+                      </div>
+                    ) : (
+                      <code className="bg-muted/50 text-foreground rounded px-1.5 py-0.5 text-[0.9em] font-mono border" {...props}>
+                        {children}
+                      </code>
+                    )
+                  }
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
+          )}
+
+          {/* Citations */}
+          {!isUser && message.citations?.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {message.citations.map((c, i) => (
+                <span
+                  key={i}
+                  className="flex items-center gap-1 text-[11px] font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors rounded-full px-2.5 py-1 cursor-default border border-border/50"
+                  title={c.title}
+                >
+                  <span className="opacity-70">{i + 1}.</span>
+                  {c.file_type === 'pdf'
+                    ? `${c.title} (pg ${c.page_number})`
+                    : `${c.title} (${fmtTime(c.timestamp_start)})`
+                  }
+                </span>
+              ))}
+            </div>
           )}
         </div>
-        {/* Citations */}
-        {!isUser && message.citations?.length > 0 && (
-          <div className="flex flex-wrap gap-1 px-1">
-            {message.citations.map((c, i) => (
-              <span
-                key={i}
-                className="text-[10px] bg-primary/10 text-primary rounded px-1.5 py-0.5 cursor-default"
-                title={c.title}
-              >
-                {c.file_type === 'pdf'
-                  ? `${c.title} p.${c.page_number}`
-                  : `${c.title} @ ${fmtTime(c.timestamp_start)}`
-                }
-              </span>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -393,5 +492,5 @@ function ChatMessage({ message }) {
 
 const fmtTime = (s) => {
   if (s == null) return '??:??';
-  return `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(Math.floor(s % 60)).padStart(2,'0')}`;
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 };

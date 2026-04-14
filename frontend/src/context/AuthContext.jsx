@@ -46,6 +46,7 @@ export const AuthProvider = ({ children }) => {
 
     const getToken = () => user?.getIdToken();
 
+
     return (
         <AuthContext.Provider value={{
             user, loading,

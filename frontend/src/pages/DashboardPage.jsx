@@ -1,13 +1,13 @@
-import { useState }       from 'react';
-import { useNavigate }    from 'react-router-dom';
-import { useAuth }        from '../context/AuthContext.jsx';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext.jsx';
 import {
   useNotebooks,
   useCreateNotebook,
   useDeleteNotebook,
 } from '../hooks/useNotebooks.js';
-import { Button }         from '@/components/ui/button';
-import { Input }          from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Card, CardContent, CardDescription,
   CardHeader, CardTitle,
@@ -16,18 +16,21 @@ import {
   Dialog, DialogContent, DialogHeader,
   DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
-import { BookOpen, Plus, Trash2, FileText, LogOut } from 'lucide-react';
+import ThemeToggle from '../components/ThemeToggle.jsx';
+import {
+  BookOpen, Plus, Trash2, FileText, LogOut, LayoutDashboard, Settings
+} from 'lucide-react';
 
 export default function DashboardPage() {
-  const { user, logout }          = useAuth();
-  const navigate                  = useNavigate();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const { data: notebooks = [], isLoading } = useNotebooks();
-  const createMutation            = useCreateNotebook();
-  const deleteMutation            = useDeleteNotebook();
+  const createMutation = useCreateNotebook();
+  const deleteMutation = useDeleteNotebook();
 
-  const [open, setOpen]   = useState(false);
+  const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
-  const [desc, setDesc]   = useState('');
+  const [desc, setDesc] = useState('');
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -44,22 +47,50 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Navbar */}
-      <header className="border-b px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <BookOpen className="h-6 w-6 text-primary" />
-          <span className="font-bold text-lg">NotebookLM</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">{user?.email}</span>
-          <Button variant="ghost" size="sm" onClick={logout}>
-            <LogOut className="h-4 w-4 mr-1" /> Sign out
-          </Button>
-        </div>
-      </header>
+    <div className="min-h-screen bg-background flex flex-col md:flex-row">
+      {/* Sidebar */}
+      <aside className="w-full md:w-64 border-r bg-muted/30 flex flex-col justify-between shrink-0 h-auto md:h-screen md:sticky md:top-0">
+        <div>
+          <div className="px-6 py-6 flex items-center gap-2">
+            <div className="bg-primary text-primary-foreground p-1.5 rounded-md">
+              <BookOpen className="h-5 w-5" />
+            </div>
+            <span className="font-bold text-xl tracking-tight">NotebookLM</span>
+          </div>
 
-      <main className="max-w-5xl mx-auto px-6 py-10">
+          <nav className="px-4 space-y-1">
+            <Button variant="secondary" className="w-full justify-start shadow-sm" onClick={() => navigate('/Notebooks')}>
+              <LayoutDashboard className="mr-2 h-4 w-4" />
+              My Notebooks
+            </Button>
+            <Button variant="ghost" className="w-full justify-start hover:bg-muted">
+              <Settings className="mr-2 h-4 w-4" />
+              Settings
+            </Button>
+          </nav>
+        </div>
+
+        <div className="p-4 border-t mt-auto">
+          <div className="flex items-center gap-3 px-2 py-2">
+            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-medium shrink-0">
+              {user?.email?.charAt(0).toUpperCase() || 'U'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{user?.displayName || 'User'}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+            </div>
+            <div className="flex items-center gap-1">
+              <ThemeToggle />
+              <Button variant="ghost" size="icon" onClick={logout} className="shrink-0 text-muted-foreground hover:text-destructive">
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 px-6 py-10 md:px-12 md:py-12 max-w-6xl w-full">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold">My Notebooks</h1>

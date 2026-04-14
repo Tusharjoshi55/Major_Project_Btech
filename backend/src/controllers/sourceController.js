@@ -57,14 +57,21 @@ export const uploadSource = async (req, res, next) => {
     });
 
     // Insert source row (status = 'pending')
-    const { rows } = await pool.query(
-      `INSERT INTO sources
-         (notebook_id, user_id, title, file_type, file_url, file_size, storage_path)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING *`,
-      [notebookId, req.user.id, file.originalname, fileType, signedUrl, file.size, destPath]
-    );
-    const source = rows[0];
+    let source;
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO sources
+           (notebook_id, user_id, title, file_type, file_url, file_size, storage_path)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [notebookId, req.user.id, file.originalname, fileType, signedUrl, file.size, destPath]
+      );
+      source = rows[0];
+    } catch (dbErr) {
+      // Cleanup Firebase if DB fails
+      await bucket.file(destPath).delete().catch(() => {});
+      throw dbErr;
+    }
 
     // Respond immediately — processing is async
     res.status(202).json({

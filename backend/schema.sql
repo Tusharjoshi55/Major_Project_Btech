@@ -30,7 +30,8 @@ CREATE TABLE sources (
   user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title           TEXT NOT NULL,
   file_type       TEXT NOT NULL CHECK (file_type IN ('pdf', 'mp3', 'mp4')),
-  file_url        TEXT NOT NULL,              -- Firebase Storage URL
+  file_url        TEXT NOT NULL,              -- Firebase Storage signed URL
+  storage_path    TEXT,                       -- Firebase Storage object path (for deletion)
   file_size       BIGINT,                     -- bytes
   status          TEXT NOT NULL DEFAULT 'pending'
                     CHECK (status IN ('pending', 'processing', 'ready', 'error')),

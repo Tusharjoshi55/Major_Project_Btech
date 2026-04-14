@@ -1,4 +1,4 @@
-# 📓 NotebookLM Clone
+#  AI Knowledge Workspace for Students
 
 > Full-stack AI-powered notebook with multimodal uploads, RAG chat with citations, transcription pipeline, and audio overviews.
 
@@ -29,32 +29,6 @@
 - [x] Express-validator input validation on all routes
 - [x] Auto-upsert user in PostgreSQL on every auth'd request
 
-### To Do
-- [ ] Deploy backend (Railway / Render)
-- [ ] Deploy frontend (Vercel)
-- [ ] Add mobile responsiveness polish
-- [ ] Add note export (PDF/markdown)
-- [ ] Rate-limit per-user on heavy endpoints (chat, upload)
-
----
-
-## 🗓️ 20-Day Roadmap
-
-| Days   | Milestone                                                              | Status  |
-|--------|------------------------------------------------------------------------|---------|
-| 1–2    | DB schema, pgvector setup, folder structure, env config                | ✅ Done |
-| 3–4    | Firebase Auth (frontend login/signup + backend middleware)             | ✅ Done |
-| 5–6    | File upload UI + Firebase Storage + Express upload endpoint            | ✅ Done |
-| 7–8    | PDF text extraction + Whisper transcription pipeline                   | ✅ Done |
-| 9–10   | Chunking + OpenAI embeddings + pgvector storage                        | ✅ Done |
-| 11–12  | RAG retrieval service + grounded chat API                              | ✅ Done |
-| 13–14  | Chat UI with citation rendering                                        | ✅ Done |
-| 15–16  | Notes feature (create, edit, delete)                                   | ✅ Done |
-| 17–18  | Audio Overview (podcast script generation)                             | ✅ Done |
-| 19     | Polish: loading states, error boundaries, responsive design            | 🔲 Todo |
-| 20     | Final testing, demo video, submission                                  | 🔲 Todo |
-
----
 
 ## 🏗️ Architecture
 
@@ -120,7 +94,8 @@ notebooklm-clone/
         ├── config/
         │   ├── db.js                ← pg Pool
         │   ├── firebase.js          ← Admin SDK
-        │   └── openai.js
+        │   |── openai.js
+        |   └─── supabase.js          ← Supabase client
         ├── middleware/
         │   ├── authMiddleware.js    ← verify JWT + upsert user
         │   ├── validate.js
@@ -173,27 +148,12 @@ Key design decisions:
 
 ## ⚙️ Setup
 
-### 1. PostgreSQL + pgvector
-```bash
-# macOS
-brew install postgresql pgvector
-brew services start postgresql
+###  PostgreSQL + pgvector
 
-# Ubuntu
-sudo apt install postgresql postgresql-contrib
-sudo -u postgres psql -c "CREATE EXTENSION vector;"
+createdb major_project
 
-createdb notebooklm_db
-psql notebooklm_db -f backend/schema.sql
-```
 
-### 2. FFmpeg
-```bash
-brew install ffmpeg        # macOS
-sudo apt install ffmpeg    # Ubuntu/Debian
-```
-
-### 3. Backend
+### Backend
 ```bash
 cd backend
 cp .env.example .env
@@ -202,7 +162,7 @@ npm install
 npm run dev
 ```
 
-### 4. Frontend
+### Frontend
 ```bash
 cd frontend
 cp .env.example .env

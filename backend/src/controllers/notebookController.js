@@ -1,5 +1,5 @@
 import pool from '../config/db.js';
-import { firebaseStorage } from '../config/firebase.js';
+import supabase from '../config/supabase.js';
 
 // GET /api/notebooks
 export const getNotebooks = async (req, res, next) => {
@@ -44,7 +44,7 @@ export const getNotebook = async (req, res, next) => {
 export const createNotebook = async (req, res, next) => {
   try {
     let { title = 'Untitled Notebook', description = '' } = req.body;
-    
+
     title = title.trim();
     if (!title) title = 'Untitled Notebook';
 
@@ -67,14 +67,14 @@ export const updateNotebook = async (req, res, next) => {
     const values = [];
     let idx = 1;
 
-    if (title !== undefined) { 
+    if (title !== undefined) {
       const t = title.trim();
-      fields.push(`title=$${idx++}`); 
-      values.push(t || 'Untitled Notebook'); 
+      fields.push(`title=$${idx++}`);
+      values.push(t || 'Untitled Notebook');
     }
-    if (description !== undefined) { 
-      fields.push(`description=$${idx++}`); 
-      values.push(description); 
+    if (description !== undefined) {
+      fields.push(`description=$${idx++}`);
+      values.push(description);
     }
 
     if (!fields.length) {
@@ -82,7 +82,7 @@ export const updateNotebook = async (req, res, next) => {
     }
 
     fields.push(`updated_at=NOW()`);
-    
+
     const { rows } = await pool.query(
       `UPDATE notebooks SET ${fields.join(', ')}
        WHERE id=$${idx} AND user_id=$${idx + 1}
@@ -98,28 +98,32 @@ export const updateNotebook = async (req, res, next) => {
 // DELETE /api/notebooks/:id
 export const deleteNotebook = async (req, res, next) => {
   try {
-    // 1. Get all sources to clean up Firebase Storage
+    // 1. Get all sources to clean up Supabase Storage
+    const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || 'major_project';
+
     const { rows: sources } = await pool.query(
       `SELECT storage_path FROM sources WHERE notebook_id=$1 AND user_id=$2`,
       [req.params.id, req.user.id]
     );
 
-    // 2. Delete files from Firebase asynchronously
-    const bucket = firebaseStorage.bucket();
-    const deletePromises = sources
+    // 2. Delete files from Supabase asynchronously
+    const pathsToDelete = sources
       .filter(s => s.storage_path)
-      .map(s => bucket.file(s.storage_path).delete().catch(() => {}));
-    
-    await Promise.all(deletePromises);
+      .map(s => s.storage_path);
+
+    if (pathsToDelete.length > 0) {
+      await supabase.storage
+        .from(SUPABASE_BUCKET)
+        .remove(pathsToDelete);
+    }
 
     // 3. Delete from DB (cascades to sources, notes, etc.)
     const { rowCount } = await pool.query(
       `DELETE FROM notebooks WHERE id=$1 AND user_id=$2`,
       [req.params.id, req.user.id]
     );
-    
+
     if (!rowCount) return res.status(404).json({ error: 'Notebook not found.' });
     res.json({ success: true, message: 'Notebook and all associated data deleted.' });
   } catch (err) { next(err); }
 };
-

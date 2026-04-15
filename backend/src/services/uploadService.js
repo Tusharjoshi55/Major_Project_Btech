@@ -3,10 +3,12 @@ import pool from '../config/db.js';
 import * as pdfService from './pdfService.js';
 import * as transcriptionService from './transcriptionService.js';
 import * as embeddingService from './embeddingService.js';
+import openai from '../config/openai.js';
 
 /**
  * Master pipeline called after a file is saved to Firebase Storage.
- * Detects file type → extracts text/transcript → chunks → embeds → stores.
+ * Detects file type → extracts text/transcript → chunks → embeds → stores
+ * Advanced: Creates summaries for long documents
  *
  * Runs entirely in background (non-blocking from controller).
  *
@@ -76,6 +78,12 @@ export const processSource = async (sourceId, fileUrl, fileType, localPath) => {
     console.log(`  🧠 Embedding ${chunks.length} chunks...`);
     await embeddingService.embedAndStore(chunks, sourceId, notebookId);
 
+    // ── Advanced: Create semantic summaries for long documents ────
+    if (chunks.length > 20) {
+      console.log(`  📝 Creating semantic summary for long document...`);
+      await createDocumentSummary(sourceId, chunks);
+    }
+
     // Mark as ready
     await pool.query(
       `UPDATE sources SET status='ready', updated_at=NOW() WHERE id=$1`,
@@ -95,5 +103,93 @@ export const processSource = async (sourceId, fileUrl, fileType, localPath) => {
     if (localPath && fs.existsSync(localPath)) {
       fs.unlinkSync(localPath);
     }
+  }
+};
+
+/**
+ * Create a semantic summary for long documents using GPT
+ * @param {string} sourceId
+ * @param {Array} chunks
+ */
+const createDocumentSummary = async (sourceId, chunks) => {
+  console.log(`📝 Creating semantic summary for long document (${chunks.length} chunks)`);
+
+  try {
+    // Group chunks into sections for summarization
+    const sectionSize = 10;
+    const summaries = [];
+
+    for (let i = 0; i < chunks.length; i += sectionSize) {
+      const section = chunks.slice(i, i + sectionSize);
+      const sectionText = section.map(c => c.content).join('\n\n');
+
+      const summary = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: 'Summarize this section in 3-5 key points' },
+          { role: 'user', content: sectionText }
+        ],
+        max_tokens: 200
+      });
+
+      summaries.push({
+        section_start: section[0]?.chunk_index,
+        section_end: section[section.length - 1]?.chunk_index,
+        summary: summary.choices[0]?.message?.content || ''
+      });
+    }
+
+    // Store summary in metadata
+    await pool.query(
+      `UPDATE sources SET metadata = jsonb_set(metadata, '{summaries}', to_jsonb($1)) WHERE id = $2`,
+      [summaries, sourceId]
+    );
+
+    console.log(`✅ Created ${summaries.length} summary sections`);
+  } catch (err) {
+    console.warn('⚠️  Summary generation failed:', err.message);
+  }
+};
+
+/**
+ * Create a timeline summary for long transcripts
+ * @param {string} sourceId
+ * @param {Array} chunks
+ */
+const createTimelineSummary = async (sourceId, chunks) => {
+  console.log(`📝 Creating timeline summary for long transcript (${chunks.length} chunks)`);
+
+  try {
+    // Extract key moments based on timestamps
+    const keyMoments = [];
+    const interval = Math.ceil(chunks.length / 5); // 5 key moments
+
+    for (let i = 0; i < chunks.length; i += interval) {
+      const chunk = chunks[i];
+      const summary = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: 'Extract the key topic or event from this transcript segment' },
+          { role: 'user', content: `${chunk.content} (at ${chunk.timestamp_start}s)` }
+        ],
+        max_tokens: 150
+      });
+
+      keyMoments.push({
+        timestamp: chunk.timestamp_start,
+        summary: summary.choices[0]?.message?.content || '',
+        chunk_index: chunk.chunk_index
+      });
+    }
+
+    // Store timeline in metadata
+    await pool.query(
+      `UPDATE sources SET metadata = jsonb_set(metadata, '{timeline}', to_jsonb($1)) WHERE id = $2`,
+      [keyMoments, sourceId]
+    );
+
+    console.log(`✅ Created ${keyMoments.length} key timeline moments`);
+  } catch (err) {
+    console.warn('⚠️  Timeline generation failed:', err.message);
   }
 };

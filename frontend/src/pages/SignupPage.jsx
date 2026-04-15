@@ -39,9 +39,8 @@ export default function SignupPage() {
   const handleGoogle = async () => {
     try {
       await loginWithGoogle();
-      navigate('/');
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Google sign-in failed.');
     }
   };
 

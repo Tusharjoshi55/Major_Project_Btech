@@ -4,13 +4,13 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Users table (mirrors Firebase Auth)
 CREATE TABLE users (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  firebase_uid  TEXT UNIQUE NOT NULL,
-  email         TEXT UNIQUE NOT NULL,
-  display_name  TEXT,
-  avatar_url    TEXT,
-  created_at    TIMESTAMPTZ DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ DEFAULT NOW()
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  supabase_uid TEXT UNIQUE NOT NULL, -- Original ID from Supabase Auth
+  email        TEXT UNIQUE NOT NULL,
+  display_name TEXT,
+  avatar_url   TEXT,
+  created_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Notebooks table

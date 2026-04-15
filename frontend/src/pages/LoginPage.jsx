@@ -26,7 +26,7 @@ export default function LoginPage() {
             await login(email, password);
             navigate('/');
         } catch (err) {
-            setError(friendlyError(err.code));
+            setError(err.message || 'Invalid email or password.');
         } finally {
             setLoading(false);
         }
@@ -36,9 +36,8 @@ export default function LoginPage() {
         setError('');
         try {
             await loginWithGoogle();
-            navigate('/');
         } catch (err) {
-            setError(friendlyError(err.code));
+            setError(err.message || 'Google sign-in failed.');
         }
     };
 
@@ -106,13 +105,4 @@ export default function LoginPage() {
     );
 }
 
-const friendlyError = (code) => {
-    const map = {
-        'auth/user-not-found': 'No account found with this email.',
-        'auth/wrong-password': 'Incorrect password.',
-        'auth/invalid-email': 'Invalid email address.',
-        'auth/too-many-requests': 'Too many attempts. Try again later.',
-        'auth/invalid-credential': 'Invalid email or password.',
-    };
-    return map[code] || 'Something went wrong. Please try again.';
-};
+// Supabase returns descriptive error messages in err.message, so we mostly use that.

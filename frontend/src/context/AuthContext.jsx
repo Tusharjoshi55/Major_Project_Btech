@@ -1,15 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import {
-    onAuthStateChanged,
-    signInWithEmailAndPassword,
-    createUserWithEmailAndPassword,
-    signOut,
-    GoogleAuthProvider,
-    signInWithPopup,
-    sendPasswordResetEmail,
-    updateProfile,
-} from 'firebase/auth';
-import { auth } from '../lib/firebase.js';
+import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext(null);
 
@@ -18,34 +8,66 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-            setUser(firebaseUser);
+        // 1. Get initial session
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setUser(session?.user ?? null);
             setLoading(false);
         });
-        return unsubscribe;
+
+        // 2. Listen for auth state changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setUser(session?.user ?? null);
+            setLoading(false);
+        });
+
+        return () => subscription.unsubscribe();
     }, []);
 
-    const login = (email, password) =>
-        signInWithEmailAndPassword(auth, email, password);
-
-    const signup = async (email, password, displayName) => {
-        const cred = await createUserWithEmailAndPassword(auth, email, password);
-        if (displayName) {
-            await updateProfile(cred.user, { displayName });
-        }
-        return cred;
+    const login = async (email, password) => {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        return data;
     };
 
-    const loginWithGoogle = () =>
-        signInWithPopup(auth, new GoogleAuthProvider());
+    const signup = async (email, password, displayName) => {
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                data: { display_name: displayName }
+            }
+        });
+        if (error) throw error;
+        return data;
+    };
 
-    const logout = () => signOut(auth);
+    const loginWithGoogle = async () => {
+        const { data, error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo: window.location.origin
+            }
+        });
+        if (error) throw error;
+        return data;
+    };
 
-    const resetPassword = (email) =>
-        sendPasswordResetEmail(auth, email);
+    const logout = async () => {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+    };
 
-    const getToken = () => user?.getIdToken();
+    const resetPassword = async (email) => {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: `${window.location.origin}/reset-password`
+        });
+        if (error) throw error;
+    };
 
+    const getToken = async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token;
+    };
 
     return (
         <AuthContext.Provider value={{

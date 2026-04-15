@@ -1,20 +1,20 @@
 import { createRequire } from 'module';
 import path from 'path';
-import fs   from 'fs';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
-import pool               from '../config/db.js';
-import supabase           from '../config/supabase.js';
-import { processSource }  from '../services/uploadService.js';
+import pool from '../config/db.js';
+import supabase from '../config/supabase.js';
+import { processSource } from '../services/uploadService.js';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+const __dirname = path.dirname(__filename);
 
 const ALLOWED_MIME_TO_TYPE = {
   'application/pdf': 'pdf',
-  'audio/mpeg':      'mp3',
-  'audio/mp3':       'mp3',
-  'video/mp4':       'mp4',
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'video/mp4': 'mp4',
 };
 
 // POST /api/sources/upload
@@ -23,8 +23,8 @@ export const uploadSource = async (req, res, next) => {
     const { notebookId } = req.body;
     const file = req.file;
 
-    if (!file)        return res.status(400).json({ error: 'No file uploaded.' });
-    if (!notebookId)  return res.status(400).json({ error: 'notebookId is required.' });
+    if (!file) return res.status(400).json({ error: 'No file uploaded.' });
+    if (!notebookId) return res.status(400).json({ error: 'notebookId is required.' });
 
     const fileType = ALLOWED_MIME_TO_TYPE[file.mimetype];
     if (!fileType) {
@@ -46,7 +46,7 @@ export const uploadSource = async (req, res, next) => {
     const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || 'major_project';
     console.log(`🚀 [DEBUG] Uploading to Supabase Bucket: ${SUPABASE_BUCKET}`);
     console.log(`🔗 [DEBUG] Supabase URL: ${process.env.SUPABASE_URL}`);
-    
+
     const destPath = `sources/${req.user.id}/${Date.now()}_${file.originalname}`;
     const fileBody = fs.readFileSync(file.path);
 
@@ -58,6 +58,7 @@ export const uploadSource = async (req, res, next) => {
       });
 
     if (uploadError) {
+      console.error("❌ Upload Error FULL:", uploadError);
       fs.unlinkSync(file.path);
       return res.status(500).json({ error: `Bucket upload failed: ${uploadError.message}` });
     }

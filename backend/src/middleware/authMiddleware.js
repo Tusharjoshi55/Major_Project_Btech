@@ -30,14 +30,14 @@ export const authMiddleware = async (req, res, next) => {
     const { email, user_metadata } = user;
     const { rows } = await pool.query(
       `INSERT INTO users (supabase_uid, email, display_name, avatar_url)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (supabase_uid)
-       DO UPDATE SET
-         email        = EXCLUDED.email,
-         display_name = EXCLUDED.display_name,
-         avatar_url   = EXCLUDED.avatar_url,
-         updated_at   = NOW()
-       RETURNING *`,
+   VALUES ($1, $2, $3, $4)
+   ON CONFLICT (email)
+   DO UPDATE SET
+     supabase_uid = EXCLUDED.supabase_uid,
+     display_name = EXCLUDED.display_name,
+     avatar_url   = EXCLUDED.avatar_url,
+     updated_at   = NOW()
+   RETURNING *`,
       [
         user.id,
         email ?? '',

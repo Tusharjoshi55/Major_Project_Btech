@@ -124,7 +124,7 @@ const createDocumentSummary = async (sourceId, chunks) => {
       const sectionText = section.map(c => c.content).join('\n\n');
 
       const summary = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
         messages: [
           { role: 'system', content: 'Summarize this section in 3-5 key points' },
           { role: 'user', content: sectionText }
@@ -167,7 +167,7 @@ const createTimelineSummary = async (sourceId, chunks) => {
     for (let i = 0; i < chunks.length; i += interval) {
       const chunk = chunks[i];
       const summary = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
         messages: [
           { role: 'system', content: 'Extract the key topic or event from this transcript segment' },
           { role: 'user', content: `${chunk.content} (at ${chunk.timestamp_start}s)` }

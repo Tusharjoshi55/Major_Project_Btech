@@ -1,4 +1,4 @@
-import openai from '../config/openai.js';
+import openai, { openaiEmbeddings } from '../config/openai.js';
 import pool from '../config/db.js';
 
 const EMBEDDING_MODEL = 'text-embedding-3-small';
@@ -13,7 +13,7 @@ const EMBEDDING_MODEL = 'text-embedding-3-small';
  * @returns {Array} chunks with citation metadata
  */
 export const retrieve = async (query, notebookId, topK = 6) => {
-  const embResponse = await openai.embeddings.create({
+  const embResponse = await openaiEmbeddings.embeddings.create({
     model: EMBEDDING_MODEL,
     input: query,
   });

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import supabase from '../lib/supabase';
 
 const AuthContext = createContext(null);
@@ -64,15 +64,48 @@ export const AuthProvider = ({ children }) => {
         if (error) throw error;
     };
 
-    const getToken = async () => {
-        const { data: { session } } = await supabase.auth.getSession();
-        return session?.access_token;
-    };
+    // Enhanced getToken with automatic refresh handling
+    const getToken = useCallback(async () => {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.access_token) {
+                return session.access_token;
+            }
+
+            // Try to refresh session if no token available
+            const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+            if (refreshError || !refreshData?.session) {
+                // If refresh fails, user needs to login again
+                await supabase.auth.signOut();
+                return null;
+            }
+
+            return refreshData.session.access_token;
+        } catch (err) {
+            console.error("Error getting token:", err);
+            return null;
+        }
+    }, []);
+
+    // Session refresh function for use in components
+    const refreshSession = useCallback(async () => {
+        try {
+            const { data: { session }, error } = await supabase.auth.refreshSession();
+            if (error) {
+                await supabase.auth.signOut();
+                return null;
+            }
+            return session;
+        } catch (err) {
+            console.error("Error refreshing session:", err);
+            return null;
+        }
+    }, []);
 
     return (
         <AuthContext.Provider value={{
             user, loading,
-            login, signup, loginWithGoogle, logout, resetPassword, getToken,
+            login, signup, loginWithGoogle, logout, resetPassword, getToken, refreshSession,
         }}>
             {!loading && children}
         </AuthContext.Provider>

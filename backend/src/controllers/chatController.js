@@ -1,5 +1,5 @@
-import pool        from '../config/db.js';
-import openai       from '../config/openai.js';
+import pool from '../config/db.js';
+import openai from '../config/openai.js';
 import * as ragService from '../services/ragService.js';
 
 // POST /api/chat
@@ -34,14 +34,14 @@ export const sendMessage = async (req, res, next) => {
     );
 
     // RAG: retrieve relevant chunks
-    const chunks       = await ragService.retrieve(message, notebookId);
+    const chunks = await ragService.retrieve(message, notebookId);
     const systemPrompt = ragService.buildGroundedPrompt(chunks);
 
     // Load last 10 messages for context
     const { rows: history } = await pool.query(
       `SELECT role, content FROM chat_messages
-       WHERE session_id=$1
-       ORDER BY created_at DESC LIMIT 10`,
+        WHERE session_id=$1
+        ORDER BY created_at DESC LIMIT 10`,
       [sid]
     );
 
@@ -52,7 +52,7 @@ export const sendMessage = async (req, res, next) => {
 
     // Call OpenAI
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
       messages,
       temperature: 0.3,
       max_tokens: 1024,
@@ -62,18 +62,18 @@ export const sendMessage = async (req, res, next) => {
 
     // Build citations array
     const citations = chunks.map(c => ({
-      source_id:       c.source_id,
-      title:           c.source_title,
-      file_type:       c.file_type,
-      page_number:     c.page_number    ?? null,
+      source_id: c.source_id,
+      title: c.source_title,
+      file_type: c.file_type,
+      page_number: c.page_number ?? null,
       timestamp_start: c.timestamp_start ?? null,
     }));
 
     // Save assistant reply with citations
     const { rows: savedMsg } = await pool.query(
       `INSERT INTO chat_messages (session_id, role, content, citations)
-       VALUES ($1, 'assistant', $2, $3)
-       RETURNING *`,
+        VALUES ($1, 'assistant', $2, $3)
+        RETURNING *`,
       [sid, reply, JSON.stringify(citations)]
     );
 
@@ -92,12 +92,12 @@ export const getSessions = async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT cs.id, cs.created_at,
-         (SELECT content FROM chat_messages
-          WHERE session_id=cs.id AND role='user'
-          ORDER BY created_at ASC LIMIT 1) AS first_message
-       FROM chat_sessions cs
-       WHERE cs.notebook_id=$1 AND cs.user_id=$2
-       ORDER BY cs.created_at DESC`,
+          (SELECT content FROM chat_messages
+            WHERE session_id=cs.id AND role='user'
+            ORDER BY created_at ASC LIMIT 1) AS first_message
+        FROM chat_sessions cs
+        WHERE cs.notebook_id=$1 AND cs.user_id=$2
+        ORDER BY cs.created_at DESC`,
       [req.params.notebookId, req.user.id]
     );
     res.json(rows);
@@ -109,10 +109,10 @@ export const getHistory = async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT cm.*
-       FROM chat_messages cm
-       JOIN chat_sessions cs ON cs.id = cm.session_id
-       WHERE cm.session_id=$1 AND cs.user_id=$2
-       ORDER BY cm.created_at ASC`,
+        FROM chat_messages cm
+        JOIN chat_sessions cs ON cs.id = cm.session_id
+        WHERE cm.session_id=$1 AND cs.user_id=$2
+        ORDER BY cm.created_at ASC`,
       [req.params.sessionId, req.user.id]
     );
     res.json(rows);
@@ -124,7 +124,7 @@ export const deleteSession = async (req, res, next) => {
   try {
     const { rowCount } = await pool.query(
       `DELETE FROM chat_sessions
-       WHERE id=$1 AND user_id=$2`,
+        WHERE id=$1 AND user_id=$2`,
       [req.params.sessionId, req.user.id]
     );
     if (!rowCount) return res.status(404).json({ error: 'Session not found.' });

@@ -1,4 +1,4 @@
-import openai from '../config/openai.js';
+import openai, { openaiEmbeddings } from '../config/openai.js';
 import pool from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -9,7 +9,7 @@ const RETRY_DELAY = 1000; // ms
 
 /**
  * Generates OpenAI embeddings for all chunks and bulk-inserts into DB.
- *
+ *  
  * @param {Array}  chunks      — from pdfService.buildChunks or transcriptionService.buildChunks
  * @param {string} sourceId    — UUID
  * @param {string} notebookId  — UUID
@@ -32,7 +32,7 @@ export const embedAndStore = async (chunks, sourceId, notebookId) => {
     let retryCount = 0;
     while (retryCount < MAX_RETRIES) {
       try {
-        response = await openai.embeddings.create({
+        response = await openaiEmbeddings.embeddings.create({
           model: EMBEDDING_MODEL,
           input: texts,
         });
@@ -94,7 +94,7 @@ export const embedAndStore = async (chunks, sourceId, notebookId) => {
  * @returns {Promise<number[]>} embedding vector
  */
 export const embedText = async (text) => {
-  const response = await openai.embeddings.create({
+  const response = await openaiEmbeddings.embeddings.create({
     model: EMBEDDING_MODEL,
     input: text,
   });

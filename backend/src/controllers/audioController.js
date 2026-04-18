@@ -50,7 +50,7 @@ Rules:
 - End with a concise summary of key takeaways`;
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Create a podcast episode from these sources:\n\n${context}` },

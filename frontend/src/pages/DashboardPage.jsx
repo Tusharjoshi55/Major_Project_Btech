@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import ThemeToggle from '../components/ThemeToggle.jsx';
 import {
-  BookOpen, Plus, Trash2, FileText, LogOut, LayoutDashboard, Settings
+  BookOpen, Plus, Trash2, FileText, LogOut, LayoutDashboard, Settings, User
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -55,7 +55,7 @@ export default function DashboardPage() {
             <div className="bg-primary text-primary-foreground p-1.5 rounded-md">
               <BookOpen className="h-5 w-5" />
             </div>
-            <span className="font-bold text-xl tracking-tight">NotebookLM</span>
+            <span className="font-bold text-xl tracking-tight">StudyBuddy AI</span>
           </div>
 
           <nav className="px-4 space-y-1">
@@ -63,7 +63,11 @@ export default function DashboardPage() {
               <LayoutDashboard className="mr-2 h-4 w-4" />
               My Notebooks
             </Button>
-            <Button variant="ghost" className="w-full justify-start hover:bg-muted">
+            <Button variant="ghost" className="w-full justify-start hover:bg-muted" onClick={() => navigate('/profile')}>
+              <User className="mr-2 h-4 w-4" />
+              Profile
+            </Button>
+            <Button variant="ghost" className="w-full justify-start hover:bg-muted" onClick={() => navigate('/settings')}>
               <Settings className="mr-2 h-4 w-4" />
               Settings
             </Button>

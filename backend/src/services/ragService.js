@@ -86,6 +86,9 @@ INSTRUCTIONS:
 3. If multiple sources support a claim, cite all of them.
 4. If the answer is not in the context, say: "I couldn't find that information in your sources."
 5. Be concise but thorough. Use markdown formatting.
+6. FORMATTING RULES:
+   - If asked for a summary, provide the response as a well-structured paragraph.
+   - If asked for a Q&A or quiz, provide EXACTLY FIVE questions and their corresponding answers.
 
 SOURCES:
 ${contextBlocks.join('\n\n---\n\n')}`;

@@ -11,6 +11,7 @@ import NotebookPage from './pages/NotebookPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
+import LandingPage from './pages/LandingPage.jsx';
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -28,14 +29,15 @@ const ProtectedRoute = ({ children }) => {
 
 const PublicRoute = ({ children }) => {
     const { user } = useAuth();
-    return !user ? children : <Navigate to="/" replace />;
+    return !user ? children : <Navigate to="/dashboard" replace />;
 };
 
 const AppRoutes = () => (
     <Routes>
         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
         <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
-        <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
         <Route path="/notebook/:id" element={<ProtectedRoute><NotebookPage /></ProtectedRoute>} />

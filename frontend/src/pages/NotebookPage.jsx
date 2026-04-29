@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useNotebook } from '../hooks/useNotebooks.js';
 import { useSources, useUploadSource, useDeleteSource } from '../hooks/useSources.js';
-import { useChat } from '../hooks/useChat.js';
+import { useChat, useChatSessions, useDeleteSession } from '../hooks/useChat.js';
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '../hooks/useNotes.js';
 import { audioApi } from '../api/index.js';
 
@@ -18,7 +18,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   FileText, Music, Video, Trash2,
   Upload, Send, Plus, ChevronLeft,
-  Loader2, Radio,
+  Loader2, Radio, Clock, MessageSquare,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import ThemeToggle from '../components/ThemeToggle.jsx';
@@ -43,7 +43,9 @@ export default function NotebookPage() {
   const updateNote = useUpdateNote(notebookId);
   const deleteNote = useDeleteNote(notebookId);
 
-  const { messages, isSending, sendMessage, sessionId } = useChat(notebookId);
+  const { messages, isSending, sendMessage, sessionId, loadSession, clearSession } = useChat(notebookId);
+  const { data: sessions = [], isLoading: sessionsLoading } = useChatSessions(notebookId);
+  const deleteSession = useDeleteSession(notebookId);
 
   const [chatInput, setChatInput] = useState('');
   const [editingNote, setEditingNote] = useState(null); // { id, title, content }
@@ -51,6 +53,14 @@ export default function NotebookPage() {
   const [overview, setOverview] = useState(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const chatBottomRef = useRef(null);
+
+  // ── Auto scroll ───────────────────────────────────────────────────
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isSending]);
 
   // ── Upload handler ─────────────────────────────────────────────────
   const handleFileChange = (e) => {
@@ -165,7 +175,7 @@ export default function NotebookPage() {
               </div>
             </div>
           )}
-          <div className="px-4 h-12 border-b flex items-center justify-between shrink-0 bg-background/50 backdrop-blur">
+          <div className="px-4 h-12 flex items-center justify-between shrink-0 bg-background/50 backdrop-blur pb-2 pt-2 border-b">
             <span className="text-sm font-semibold tracking-wide">Knowledge Base</span>
             <label className="cursor-pointer">
               <input
@@ -244,14 +254,60 @@ export default function NotebookPage() {
               )}
             </div>
           </ScrollArea>
+
+          {/* Chat Sessions (Bottom half of left sidebar) */}
+          <div className="px-4 h-10 border-t border-b flex items-center justify-between shrink-0 bg-background/50 backdrop-blur">
+            <span className="text-sm font-semibold tracking-wide">Chats</span>
+            <Button 
+                variant="ghost" size="icon" 
+                className="h-7 w-7 rounded-full hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
+                onClick={() => { clearSession(); }}
+            >
+                <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+          <ScrollArea className="h-2/5 border-t-0 flex-shrink-0">
+            <div className="p-3 space-y-1.5">
+              {sessions.length === 0 ? (
+                <div className="flex flex-col items-center justify-center text-center py-6 px-4 opacity-50">
+                   <MessageSquare className="h-8 w-8 mb-2 text-muted-foreground" />
+                   <p className="text-xs font-medium">No chats yet</p>
+                </div>
+              ) : (
+                sessions.map(s => (
+                  <div 
+                    key={s.id}
+                    className={`group relative flex items-center p-2 rounded-lg border transition-all cursor-pointer hover:shadow-sm ${sessionId === s.id ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-card hover:border-primary/30'}`}
+                    onClick={() => { loadSession(s.id); }}
+                  >
+                    <div className="flex-1 min-w-0 pr-6">
+                      <p className="text-[12px] font-medium truncate text-foreground/90">{s.first_message || "Untitled Chat"}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">{new Date(s.created_at).toLocaleDateString()}</p>
+                    </div>
+                    <Button 
+                      variant="ghost" size="icon" 
+                      className="h-6 w-6 absolute right-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10"
+                      onClick={(e) => { e.stopPropagation(); deleteSession.mutate(s.id); if (sessionId === s.id) clearSession(); }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+          </ScrollArea>
         </aside>
 
         {/* Center Panel — Chat */}
         <main className="flex-1 flex flex-col bg-background relative border-r shadow-sm z-10">
-            <div className="px-6 h-12 border-b flex items-center shrink-0 bg-card z-10 shadow-sm">
-                <span className="font-semibold text-sm">Notebook Chat</span>
+            <div className="px-6 h-12 border-b flex items-center justify-between shrink-0 bg-card z-10 shadow-sm">
+                <div className="flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-primary" />
+                    <span className="font-semibold text-sm">Notebook Chat</span>
+                </div>
             </div>
-            <ScrollArea className="flex-1 px-4 md:px-8 pt-4 pb-0 bg-muted/5">
+
+            <ScrollArea className="flex-1 px-4 md:px-8 pt-4 pb-0 bg-muted/5 relative">
             {messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full py-24 text-center">
                    <div className="h-16 w-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mb-6 shadow-sm">
@@ -272,22 +328,23 @@ export default function NotebookPage() {
                    </div>
                 </div>
             ) : (
-                <div className="space-y-6 pb-6">
+                <div className="space-y-6 pb-12">
                 {messages.map(msg => (
                     <ChatMessage key={msg.id} message={msg} />
                 ))}
                 {isSending && (
                     <div className="flex w-full justify-start mb-6">
                     <div className="flex max-w-[75%] gap-4 flex-row">
-                        <div className="h-8 w-8 rounded-full flex items-center justify-center shrink-0 bg-primary/10 text-primary border border-primary/20">
+                        <div className="h-8 w-8 rounded-full flex items-center justify-center shrink-0 bg-primary/10 text-primary border border-primary/20 shadow-sm">
                             <Loader2 className="h-4 w-4 animate-spin" />
                         </div>
-                        <div className="bg-muted/50 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-foreground/70 animate-pulse border">
-                            Reading sources and thinking...
+                        <div className="bg-card rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-foreground/80 border shadow-sm animate-pulse flex items-center gap-2">
+                             Thinking...
                         </div>
                     </div>
                     </div>
                 )}
+                <div ref={chatBottomRef} className="h-4" />
                 </div>
             )}
             </ScrollArea>
@@ -464,7 +521,9 @@ export default function NotebookPage() {
                             />
                         ) : (
                             <ScrollArea className="flex-1 p-2 bg-muted/5 rounded-md custom-scrollbar">
-                                <ReactMarkdown className="prose prose-sm dark:prose-invert max-w-none text-[13px] leading-normal">{editingNote.content || '*Empty note*'}</ReactMarkdown>
+                                <div className="prose prose-sm dark:prose-invert max-w-none text-[13px] leading-normal">
+                                    <ReactMarkdown>{editingNote.content || '*Empty note*'}</ReactMarkdown>
+                                </div>
                             </ScrollArea>
                         )}
                         <div className="pt-3 mt-auto flex gap-2">
@@ -507,31 +566,32 @@ function ChatMessage({ message }) {
             </div>
           ) : (
             <div className="text-[15px] leading-relaxed text-foreground mt-1 w-full">
-              <ReactMarkdown
-                className="prose prose-sm dark:prose-invert max-w-none break-words"
-                components={{
-                  p: ({ children }) => <p className="mb-4 last:mb-0 leading-7">{children}</p>,
-                  code: ({ node, inline, className, children, ...props }) => {
-                    const match = /language-(\w+)/.exec(className || '')
-                    return !inline ? (
-                      <div className="mt-2 mb-4 rounded-md overflow-hidden bg-muted/50 border">
-                        <div className="px-3 py-1.5 bg-muted text-xs text-muted-foreground font-mono flex items-center">{match?.[1] || 'code'}</div>
-                        <div className="p-3 overflow-x-auto">
-                          <code className="text-sm font-mono" {...props}>
-                            {children}
-                          </code>
+              <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+                <ReactMarkdown
+                  components={{
+                    p: ({ children }) => <p className="mb-4 last:mb-0 leading-7">{children}</p>,
+                    code: ({ node, inline, className, children, ...props }) => {
+                      const match = /language-(\w+)/.exec(className || '')
+                      return !inline ? (
+                        <div className="mt-2 mb-4 rounded-md overflow-hidden bg-muted/50 border">
+                          <div className="px-3 py-1.5 bg-muted text-xs text-muted-foreground font-mono flex items-center">{match?.[1] || 'code'}</div>
+                          <div className="p-3 overflow-x-auto">
+                            <code className="text-sm font-mono" {...props}>
+                              {children}
+                            </code>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <code className="bg-muted/50 text-foreground rounded px-1.5 py-0.5 text-[0.9em] font-mono border" {...props}>
-                        {children}
-                      </code>
-                    )
-                  }
-                }}
-              >
-                {message.content}
-              </ReactMarkdown>
+                      ) : (
+                        <code className="bg-muted/50 text-foreground rounded px-1.5 py-0.5 text-[0.9em] font-mono border" {...props}>
+                          {children}
+                        </code>
+                      )
+                    }
+                  }}
+                >
+                  {message.content}
+                </ReactMarkdown>
+              </div>
             </div>
           )}
 

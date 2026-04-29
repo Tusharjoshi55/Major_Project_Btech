@@ -1,9 +1,7 @@
 import fs from 'fs';
 import { createRequire } from 'module';
-
-// pdf-parse is CommonJS only — use createRequire
 const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+const pdf = require('pdf-parse');
 
 const CHUNK_SIZE = 500;  // words per chunk
 const CHUNK_OVERLAP = 50;   // word overlap between chunks
@@ -18,19 +16,28 @@ export const extractPages = async (filePath) => {
 
   const pages = [];
 
-  const data = await pdfParse(dataBuffer, {
-    pagerender: async (pageData) => {
-      const content = await pageData.getTextContent();
-      const text = content.items.map(i => i.str).join(' ').trim();
-      pages.push({ page: pages.length + 1, text });
-      return text;
-    },
-  });
+  try {
+    const parser = new pdf.PDFParse(new Uint8Array(dataBuffer));
+    await parser.load();
 
-  // Fallback: if pagerender didn't fire, split by form-feed
-  if (!pages.length) {
-    const rawPages = data.text.split('\f').filter(Boolean);
-    rawPages.forEach((text, i) => pages.push({ page: i + 1, text: text.trim() }));
+    const textResult = await parser.getText();
+    const fullText = (typeof textResult === 'string') ? textResult : (textResult?.text || '');
+    
+    // Split by form-feed character which represents page boundaries in most PDFs
+    const rawPages = fullText.split('\f').filter(Boolean);
+    
+    if (rawPages.length > 0) {
+      rawPages.forEach((t, i) => {
+        pages.push({ page: i + 1, text: t.trim() });
+      });
+    } else if (fullText.trim()) {
+      // Fallback if no form-feeds
+      pages.push({ page: 1, text: fullText.trim() });
+    }
+  } catch (err) {
+    console.error("PDF extraction error:", err.message);
+    // Fallback or rethrow
+    throw err;
   }
 
   return pages;

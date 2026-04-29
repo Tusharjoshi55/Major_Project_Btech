@@ -34,10 +34,4 @@ const openai = new OpenAI({
     },
 });
 
-// For Vector Embeddings (Requires OpenAI standard API key)
-// OpenRouter does not support the /embeddings route natively with all models.
-export const openaiEmbeddings = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-});
-
 export default openai;

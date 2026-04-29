@@ -34,7 +34,10 @@ export const sendMessage = async (req, res, next) => {
     );
 
     // RAG: retrieve relevant chunks
+    console.log(`🔍 [CHAT] Retrieving chunks for notebook: ${notebookId}`);
     const chunks = await ragService.retrieve(message, notebookId);
+    console.log(`📚 [CHAT] Found ${chunks.length} relevant chunks`);
+
     const systemPrompt = ragService.buildGroundedPrompt(chunks);
 
     // Load last 10 messages for context
@@ -45,6 +48,8 @@ export const sendMessage = async (req, res, next) => {
       [sid]
     );
 
+    console.log(`💬 [CHAT] Loaded history: ${history.length} messages`);
+
     const messages = [
       { role: 'system', content: systemPrompt },
       ...history.reverse().map(m => ({ role: m.role, content: m.content })),
@@ -52,7 +57,7 @@ export const sendMessage = async (req, res, next) => {
 
     // Call OpenAI
     const completion = await openai.chat.completions.create({
-      model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
+      model: 'google/gemini-2.0-flash-lite-001',
       messages,
       temperature: 0.3,
       max_tokens: 1024,

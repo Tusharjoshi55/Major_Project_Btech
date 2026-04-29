@@ -43,11 +43,27 @@ export const uploadSource = async (req, res, next) => {
     }
 
     // Upload to Supabase Storage
-    const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || 'major_project';
+    const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || 'sources';
     console.log(`🚀 [DEBUG] Uploading to Supabase Bucket: ${SUPABASE_BUCKET}`);
     console.log(`🔗 [DEBUG] Supabase URL: ${process.env.SUPABASE_URL}`);
 
+    // Check if bucket exists/is accessible
+    const { data: buckets, error: bucketError } = await supabase.storage.listBuckets();
+    if (bucketError) {
+       console.error("❌ Failed to list Supabase buckets:", bucketError);
+       fs.unlinkSync(file.path);
+       return res.status(500).json({ error: `Storage configuration error: ${bucketError.message}` });
+    }
+    const bucketExists = buckets.find(b => b.name === SUPABASE_BUCKET);
+    if (!bucketExists) {
+       console.error(`❌ Supabase bucket '${SUPABASE_BUCKET}' does not exist.`);
+       fs.unlinkSync(file.path);
+       return res.status(500).json({ error: `Storage bucket '${SUPABASE_BUCKET}' not found in Supabase. Please manually create it in the Supabase Dashboard.` });
+    }
+    console.log(`✅ Bucket '${SUPABASE_BUCKET}' verified.`);
+
     const destPath = `sources/${req.user.id}/${Date.now()}_${file.originalname}`;
+    console.log(`📦 Preparing to upload ${file.originalname} to ${destPath}`);
     const fileBody = fs.readFileSync(file.path);
 
     const { error: uploadError } = await supabase.storage
@@ -62,6 +78,7 @@ export const uploadSource = async (req, res, next) => {
       fs.unlinkSync(file.path);
       return res.status(500).json({ error: `Bucket upload failed: ${uploadError.message}` });
     }
+    console.log(`✅ Upload successful: ${destPath}`);
 
     // Get signed URL (1 year expiration)
     const { data: signData, error: signError } = await supabase.storage
@@ -74,6 +91,7 @@ export const uploadSource = async (req, res, next) => {
       fs.unlinkSync(file.path);
       return res.status(500).json({ error: `Shared URL failed: ${signError.message}` });
     }
+    console.log(`✅ Signed URL generated.`);
 
     const signedUrl = signData.signedUrl;
 
@@ -102,8 +120,17 @@ export const uploadSource = async (req, res, next) => {
     });
 
     // Background processing (non-blocking — don't await)
+    console.log(`🚀 Started background processing for source ID: ${source.id}`);
     processSource(source.id, signedUrl, fileType, file.path)
-      .catch((err) => console.error(`Background processing failed for ${source.id}:`, err.message));
+      .catch(async (err) => {
+        console.error(`❌ Unhandled background processing error for ${source.id}:`, err.message);
+        // Fallback update in case it crashed before/outside the inner try-catch
+        try {
+          await pool.query(`UPDATE sources SET status='error', error_message=$1, updated_at=NOW() WHERE id=$2`, [err.message, source.id]);
+        } catch (dbErr) {
+          console.error(`  ❌ Failed to update source error status:`, dbErr.message);
+        }
+      });
 
   } catch (err) { next(err); }
 };

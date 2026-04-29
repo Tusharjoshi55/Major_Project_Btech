@@ -1,8 +1,8 @@
-import openai, { openaiEmbeddings } from '../config/openai.js';
+import openai from '../config/openai.js';
 import pool from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
 
-const EMBEDDING_MODEL = 'text-embedding-3-small';
+const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 const BATCH_SIZE = 20; // embed N chunks per API call
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // ms
@@ -32,18 +32,19 @@ export const embedAndStore = async (chunks, sourceId, notebookId) => {
     let retryCount = 0;
     while (retryCount < MAX_RETRIES) {
       try {
-        response = await openaiEmbeddings.embeddings.create({
+        response = await openai.embeddings.create({
           model: EMBEDDING_MODEL,
           input: texts,
+          encoding_format: 'float',
         });
         break; // Success
       } catch (error) {
         retryCount++;
         if (retryCount >= MAX_RETRIES) {
-          console.error(`❌ Failed to embed batch starting at ${i} after ${MAX_RETRIES} retries:`, error.message);
+          console.error(`❌ Failed to embed batch starting at ${i} after ${MAX_RETRIES} retries. Model: ${EMBEDDING_MODEL}. Error:`, error.message, error.stack);
           throw error;
         }
-        console.warn(`⚠️  Retry ${retryCount}/${MAX_RETRIES} for batch ${Math.floor(i / BATCH_SIZE) + 1}`);
+        console.warn(`⚠️  Retry ${retryCount}/${MAX_RETRIES} for batch ${Math.floor(i / BATCH_SIZE) + 1} failed: ${error.message}`);
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * retryCount));
       }
     }
@@ -51,10 +52,10 @@ export const embedAndStore = async (chunks, sourceId, notebookId) => {
     // Insert each chunk with its embedding
     for (let j = 0; j < batch.length; j++) {
       const chunk = batch[j];
-      const embedding = response.data[j]?.embedding;
+      const embedding = response?.data?.[j]?.embedding;
 
       if (!embedding) {
-        console.warn(`⚠️  No embedding for chunk at index ${i + j}`);
+        console.warn(`⚠️  No embedding for chunk at index ${i + j}`, response.error || response);
         continue;
       }
 
@@ -94,9 +95,13 @@ export const embedAndStore = async (chunks, sourceId, notebookId) => {
  * @returns {Promise<number[]>} embedding vector
  */
 export const embedText = async (text) => {
-  const response = await openaiEmbeddings.embeddings.create({
+  const response = await openai.embeddings.create({
     model: EMBEDDING_MODEL,
     input: text,
+    encoding_format: 'float',
   });
+  if (!response?.data?.[0]?.embedding) {
+      throw new Error(`Failed to generate embeddings from OpenRouter using model ${EMBEDDING_MODEL}: No data returned. Response: ${JSON.stringify(response)}`);
+  }
   return response.data[0].embedding;
 };

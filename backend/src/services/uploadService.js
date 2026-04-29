@@ -6,14 +6,14 @@ import * as embeddingService from './embeddingService.js';
 import openai from '../config/openai.js';
 
 /**
- * Master pipeline called after a file is saved to Firebase Storage.
+ * Master pipeline called after a file is saved to Supabase Storage.
  * Detects file type → extracts text/transcript → chunks → embeds → stores
  * Advanced: Creates summaries for long documents
  *
  * Runs entirely in background (non-blocking from controller).
  *
  * @param {string} sourceId   — DB UUID of the source row
- * @param {string} fileUrl    — signed Firebase Storage URL
+ * @param {string} fileUrl    — signed Supabase Storage URL
  * @param {string} fileType   — 'pdf' | 'mp3' | 'mp4'
  * @param {string} localPath  — temp file path on disk (from multer)
  */
@@ -31,36 +31,44 @@ export const processSource = async (sourceId, fileUrl, fileType, localPath) => {
 
     // ── PDF ────────────────────────────────────────────────────────
     if (fileType === 'pdf') {
-      console.log(`  📄 Extracting PDF pages...`);
-      const pages = await pdfService.extractPages(localPath);
+      try {
+        console.log(`  📄 Extracting PDF pages...`);
+        const pages = await pdfService.extractPages(localPath);
 
-      await pool.query(
-        `UPDATE sources SET metadata=$1 WHERE id=$2`,
-        [JSON.stringify({ pages, total_pages: pages.length }), sourceId]
-      );
+        await pool.query(
+          `UPDATE sources SET metadata=$1 WHERE id=$2`,
+          [JSON.stringify({ pages, total_pages: pages.length }), sourceId]
+        );
 
-      console.log(`  ✂️  Building ${pages.length}-page PDF chunks...`);
-      chunks = pdfService.buildChunks(pages);
+        console.log(`  ✂️  Building ${pages.length}-page PDF chunks...`);
+        chunks = pdfService.buildChunks(pages);
+      } catch (pdfErr) {
+        throw new Error(`PDF Processing failed: ${pdfErr.message}`);
+      }
 
       // ── Audio / Video ─────────────────────────────────────────────
     } else if (fileType === 'mp3' || fileType === 'mp4') {
-      console.log(`  🎙️  Transcribing ${fileType.toUpperCase()} with Whisper...`);
-      const transcript = await transcriptionService.transcribe(localPath, fileType);
+      try {
+        console.log(`  🎙️  Transcribing ${fileType.toUpperCase()} with Whisper...`);
+        const transcript = await transcriptionService.transcribe(localPath, fileType);
 
-      await pool.query(
-        `UPDATE sources SET metadata=$1 WHERE id=$2`,
-        [
-          JSON.stringify({
-            transcript,
-            duration: transcript.at(-1)?.end ?? 0,
-            segment_count: transcript.length,
-          }),
-          sourceId,
-        ]
-      );
+        await pool.query(
+          `UPDATE sources SET metadata=$1 WHERE id=$2`,
+          [
+            JSON.stringify({
+              transcript,
+              duration: transcript.at(-1)?.end ?? 0,
+              segment_count: transcript.length,
+            }),
+            sourceId,
+          ]
+        );
 
-      console.log(`  ✂️  Building transcript chunks (${transcript.length} segments)...`);
-      chunks = transcriptionService.buildChunks(transcript);
+        console.log(`  ✂️  Building transcript chunks (${transcript.length} segments)...`);
+        chunks = transcriptionService.buildChunks(transcript);
+      } catch (audioErr) {
+        throw new Error(`Audio/Video transcription failed: ${audioErr.message}`);
+      }
     }
 
     // ── Embedding ─────────────────────────────────────────────────
@@ -76,7 +84,11 @@ export const processSource = async (sourceId, fileUrl, fileType, localPath) => {
     const notebookId = rows[0].notebook_id;
 
     console.log(`  🧠 Embedding ${chunks.length} chunks...`);
-    await embeddingService.embedAndStore(chunks, sourceId, notebookId);
+    try {
+      await embeddingService.embedAndStore(chunks, sourceId, notebookId);
+    } catch (embedErr) {
+      throw new Error(`Embedding generation failed: ${embedErr.message}`);
+    }
 
     // ── Advanced: Create semantic summaries for long documents ────
     if (chunks.length > 20) {
@@ -89,6 +101,32 @@ export const processSource = async (sourceId, fileUrl, fileType, localPath) => {
       `UPDATE sources SET status='ready', updated_at=NOW() WHERE id=$1`,
       [sourceId]
     );
+
+    // ── Auto-Generate Overview Note ──
+    try {
+      console.log(`  📝 Generating automatic overview note...`);
+      const sampleText = chunks.slice(0, 3).map(c => c.content).join('\\n\\n');
+      const overview = await openai.chat.completions.create({
+        model: 'google/gemini-2.0-flash-lite-001',
+        messages: [
+          { role: 'system', content: 'You are an AI assistant. Summarize the following text into a neat, short study guide with bullet points. It is the beginning of a document.' },
+          { role: 'user', content: sampleText }
+        ],
+        max_tokens: 300
+      });
+      const noteContent = overview.choices[0]?.message?.content || 'No summary generated.';
+      
+      const { rows: sourceInfo } = await pool.query(`SELECT title FROM sources WHERE id=$1`, [sourceId]);
+      const title = `Overview: ${sourceInfo[0]?.title}`;
+
+      await pool.query(
+        `INSERT INTO notes (notebook_id, title, content) VALUES ($1, $2, $3)`,
+        [notebookId, title, noteContent]
+      );
+      console.log(`  ✅ Overview Note created.`);
+    } catch (e) {
+      console.error(`  ❌ Failed to generate auto-overview note:`, e.message);
+    }
 
     console.log(`  ✅ Source ${sourceId} ready — ${chunks.length} chunks embedded.\n`);
 
@@ -124,7 +162,7 @@ const createDocumentSummary = async (sourceId, chunks) => {
       const sectionText = section.map(c => c.content).join('\n\n');
 
       const summary = await openai.chat.completions.create({
-        model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
+        model: 'google/gemini-2.0-flash-lite-001',
         messages: [
           { role: 'system', content: 'Summarize this section in 3-5 key points' },
           { role: 'user', content: sectionText }
@@ -167,7 +205,7 @@ const createTimelineSummary = async (sourceId, chunks) => {
     for (let i = 0; i < chunks.length; i += interval) {
       const chunk = chunks[i];
       const summary = await openai.chat.completions.create({
-        model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
+        model: 'google/gemini-2.0-flash-lite-001',
         messages: [
           { role: 'system', content: 'Extract the key topic or event from this transcript segment' },
           { role: 'user', content: `${chunk.content} (at ${chunk.timestamp_start}s)` }

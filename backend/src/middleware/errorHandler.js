@@ -12,8 +12,8 @@ const errorHandler = (err, req, res, next) => {
     return res.status(400).json({ error: 'Invalid JSON body.' });
   }
 
-  // Firebase token errors
-  if (err.code?.startsWith('auth/')) {
+  // Firebase/Auth token errors
+  if (typeof err.code === 'string' && err.code.startsWith('auth/')) {
     return res.status(401).json({ error: 'Authentication error: ' + err.message });
   }
 

@@ -56,14 +56,15 @@ CREATE TABLE chunks (
   page_number INT,                  -- for PDF
   timestamp_start FLOAT,           -- for audio/video (seconds)
   timestamp_end   FLOAT,
-  -- pgvector embedding (text-embedding-3-small = 1536 dims)
+  -- pgvector embedding (openai/text-embedding-3-small = 1536 dims)
   embedding   vector(1536),
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Create vector similarity search index
-CREATE INDEX ON chunks USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 100);
+-- NOTE: pgvector 0.8.x caps ANN indexes (IVFFlat, HNSW) at 2000 dims.
+-- The nvidia/llama-nemotron model uses 2048 dims, so the index is omitted.
+-- Exact KNN (sequential scan) is used instead — correct but slower at large scale.
+-- To re-enable: upgrade pgvector >0.8.x or switch to a <=2000-dim model.
 
 -- Notes table
 CREATE TABLE notes (

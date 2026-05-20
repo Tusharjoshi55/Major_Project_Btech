@@ -6,6 +6,7 @@ import {
   getSessions,
   getHistory,
   deleteSession,
+  deleteMessage,
 } from '../controllers/chatController.js';
 
 const router = Router();
@@ -20,5 +21,6 @@ router.post('/',
 router.get('/sessions/:notebookId', getSessions);
 router.get('/history/:sessionId', getHistory);
 router.delete('/sessions/:sessionId', deleteSession);
+router.delete('/message/:messageId', deleteMessage);
 
 export default router;

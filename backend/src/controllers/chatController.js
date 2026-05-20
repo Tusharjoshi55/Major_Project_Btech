@@ -136,3 +136,19 @@ export const deleteSession = async (req, res, next) => {
     res.json({ success: true });
   } catch (err) { next(err); }
 };
+
+// DELETE /api/chat/message/:messageId — delete a single message
+export const deleteMessage = async (req, res, next) => {
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM chat_messages cm
+        USING chat_sessions cs
+        WHERE cm.id = $1
+          AND cm.session_id = cs.id
+          AND cs.user_id = $2`,
+      [req.params.messageId, req.user.id]
+    );
+    if (!rowCount) return res.status(404).json({ error: 'Message not found.' });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+};

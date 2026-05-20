@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useNotebook } from '../hooks/useNotebooks.js';
 import { useSources, useUploadSource, useDeleteSource } from '../hooks/useSources.js';
-import { useChat, useChatSessions, useDeleteSession } from '../hooks/useChat.js';
+import { useChat, useChatSessions, useDeleteSession, useDeleteMessage } from '../hooks/useChat.js';
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '../hooks/useNotes.js';
 import { audioApi } from '../api/index.js';
 
@@ -18,7 +18,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   FileText, Music, Video, Trash2,
   Upload, Send, Plus, ChevronLeft,
-  Loader2, Radio, Clock, MessageSquare,
+  Loader2, Radio, MessageSquare,
+  Maximize2, Minimize2, X, BookOpen, Eye,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import ThemeToggle from '../components/ThemeToggle.jsx';
@@ -43,17 +44,21 @@ export default function NotebookPage() {
   const updateNote = useUpdateNote(notebookId);
   const deleteNote = useDeleteNote(notebookId);
 
-  const { messages, isSending, sendMessage, sessionId, loadSession, clearSession } = useChat(notebookId);
+  const { messages, isSending, sendMessage, sessionId, loadSession, clearSession, setMessages } = useChat(notebookId);
   const { data: sessions = [], isLoading: sessionsLoading } = useChatSessions(notebookId);
   const deleteSession = useDeleteSession(notebookId);
+  const deleteMessageMutation = useDeleteMessage();
 
   const [chatInput, setChatInput] = useState('');
-  const [editingNote, setEditingNote] = useState(null); // { id, title, content }
-  const [noteMode, setNoteMode] = useState('edit'); // 'edit' or 'preview'
+  const [editingNote, setEditingNote] = useState(null);
+  const [noteMode, setNoteMode] = useState('edit');
   const [overview, setOverview] = useState(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  // Document overview modal: { source, summaryNote }
+  const [docOverviewModal, setDocOverviewModal] = useState(null);
+  const prevSourcesRef = useRef([]);
 
   const chatBottomRef = useRef(null);
 
@@ -61,6 +66,31 @@ export default function NotebookPage() {
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isSending]);
+
+  // ── Detect newly-ready sources → show doc overview modal ──────────
+  useEffect(() => {
+    const prev = prevSourcesRef.current;
+    if (prev.length > 0 && sources.length > 0) {
+      sources.forEach((src) => {
+        const wasProcessing = prev.find(
+          p => p.id === src.id && (p.status === 'pending' || p.status === 'processing')
+        );
+        if (wasProcessing && src.status === 'ready') {
+          // Show modal with source info; metadata may contain auto_summary if backend provided it
+          setDocOverviewModal({ source: src, metadata: src.metadata ?? null });
+          toast.success(`"${src.title}" is ready!`);
+        }
+      });
+    }
+    prevSourcesRef.current = sources;
+  }, [sources]);
+
+  // ── Delete individual message ──────────────────────────────────────
+  const handleDeleteMessage = useCallback((msgId) => {
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+    // Fire-and-forget — if it fails we don't re-add the message (UX preference)
+    deleteMessageMutation.mutate(msgId);
+  }, [setMessages, deleteMessageMutation]);
 
   // ── Upload handler ─────────────────────────────────────────────────
   const handleFileChange = (e) => {
@@ -139,28 +169,81 @@ export default function NotebookPage() {
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      <header className="border-b px-6 py-3 flex items-center justify-between bg-card text-card-foreground shadow-sm z-10 relative">
+
+      {/* ── Document Overview Modal ─────────────────────────────── */}
+      {docOverviewModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border rounded-2xl shadow-2xl w-full max-w-lg flex flex-col gap-0 overflow-hidden">
+            <div className="flex items-center gap-3 px-5 py-4 border-b bg-muted/20">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Eye className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm truncate">Document Ready</p>
+                <p className="text-xs text-muted-foreground truncate">{docOverviewModal.source?.title}</p>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setDocOverviewModal(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-xs text-muted-foreground mb-3 font-medium uppercase tracking-wider">Auto-generated Overview</p>
+              <div className="rounded-lg bg-muted/30 border p-4 text-sm text-foreground/80 leading-relaxed max-h-72 overflow-y-auto">
+                {docOverviewModal.metadata?.auto_summary
+                  ? <ReactMarkdown>{docOverviewModal.metadata.auto_summary}</ReactMarkdown>
+                  : <span className="text-muted-foreground italic">Your document has been processed and embedded. You can now ask questions about it in the chat.</span>
+                }
+              </div>
+            </div>
+            <div className="px-5 pb-4 flex gap-2">
+              <Button className="flex-1" onClick={() => { setDocOverviewModal(null); sendMessage(`Give me a comprehensive summary of ${docOverviewModal.source?.title}.`); }}>
+                <MessageSquare className="h-4 w-4 mr-2" /> Chat About It
+              </Button>
+              <Button variant="outline" onClick={() => setDocOverviewModal(null)}>Dismiss</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Header ───────────────────────────────────────────────── */}
+      <header className="border-b px-6 py-3 flex items-center justify-between bg-card/80 backdrop-blur-md text-card-foreground shadow-sm z-10 relative shrink-0">
         <div className="flex items-center gap-3 min-w-0">
-          <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-md hover:bg-muted">
+          <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded-md hover:bg-muted">
             <ChevronLeft className="h-5 w-5" />
           </Link>
-          <div className="flex-1 min-w-0">
-            <h1 className="font-semibold text-lg truncate tracking-tight">{notebook.title}</h1>
-            {notebook.description && (
-              <p className="text-xs text-muted-foreground truncate">{notebook.description}</p>
-            )}
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+              <BookOpen className="h-4 w-4 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h1 className="font-semibold text-base truncate tracking-tight">{notebook.title}</h1>
+              {notebook.description && (
+                <p className="text-xs text-muted-foreground truncate">{notebook.description}</p>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost" size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            title={isFullScreen ? 'Exit full screen' : 'Full screen chat'}
+            onClick={() => setIsFullScreen(v => !v)}
+          >
+            {isFullScreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </Button>
           <ThemeToggle />
         </div>
       </header>
 
-      {/* Main area */}
+      {/* ── Main area ─────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Left panel — Sources */}
+        {/* Left panel — Sources (hidden in full screen) */}
         <aside
-          className={`w-64 border-r bg-muted/10 flex flex-col shrink-0 relative transition-colors duration-200 ${isDragging ? 'bg-primary/5 border-primary/50 border-dashed' : ''}`}
+          className={`border-r bg-muted/10 flex flex-col shrink-0 relative transition-all duration-300 ease-in-out overflow-hidden
+            ${isFullScreen ? 'w-0 opacity-0 pointer-events-none' : 'w-64 opacity-100'}
+            ${isDragging ? 'bg-primary/5 border-primary/50 border-dashed' : ''}
+          `}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -220,9 +303,9 @@ export default function NotebookPage() {
                 </div>
               ) : sources.length === 0 ? (
                 <div className="flex flex-col items-center justify-center text-center py-10 px-4 opacity-50">
-                   <FileText className="h-10 w-10 mb-3 text-muted-foreground" />
-                   <p className="text-sm font-medium">No sources yet</p>
-                   <p className="text-xs mt-1">Upload a PDF or Audio file to begin training your AI.</p>
+                  <FileText className="h-10 w-10 mb-3 text-muted-foreground" />
+                  <p className="text-sm font-medium">No sources yet</p>
+                  <p className="text-xs mt-1">Upload a PDF or Audio file to begin training your AI.</p>
                 </div>
               ) : (
                 sources.map(src => {
@@ -233,13 +316,13 @@ export default function NotebookPage() {
                       className="flex items-center gap-3 rounded-lg px-3 py-2.5 bg-card border shadow-sm hover:shadow-md hover:border-primary/30 transition-all group text-sm relative overflow-hidden"
                     >
                       <div className="h-8 w-8 rounded bg-muted/50 flex items-center justify-center shrink-0">
-                         <Icon className={`h-4 w-4 ${src.file_type==='pdf'?'text-rose-500':src.file_type==='mp3'?'text-blue-500':'text-emerald-500'}`} />
+                        <Icon className={`h-4 w-4 ${src.file_type === 'pdf' ? 'text-rose-500' : src.file_type === 'mp3' ? 'text-blue-500' : 'text-emerald-500'}`} />
                       </div>
                       <div className="flex-1 min-w-0">
-                         <p className="truncate text-xs font-medium text-foreground/90">{src.title}</p>
-                         <Badge variant={STATUS_COLORS[src.status]} className="text-[9px] px-1.5 py-0 bg-opacity-10 mt-0.5">
-                           {src.status === 'processing' ? 'Processing...' : src.status}
-                         </Badge>
+                        <p className="truncate text-xs font-medium text-foreground/90">{src.title}</p>
+                        <Badge variant={STATUS_COLORS[src.status]} className="text-[9px] px-1.5 py-0 bg-opacity-10 mt-0.5">
+                          {src.status === 'processing' ? 'Processing...' : src.status}
+                        </Badge>
                       </div>
                       <Button
                         variant="ghost" size="icon"
@@ -256,26 +339,26 @@ export default function NotebookPage() {
           </ScrollArea>
 
           {/* Chat Sessions (Bottom half of left sidebar) */}
-          <div className="px-4 h-10 border-t border-b flex items-center justify-between shrink-0 bg-background/50 backdrop-blur">
+          <div className="px-4 h-10 border-t border-b flex items-center justify-between shrink-0 bg-background/50 backdrop-blur scroll-m-2">
             <span className="text-sm font-semibold tracking-wide">Chats</span>
-            <Button 
-                variant="ghost" size="icon" 
-                className="h-7 w-7 rounded-full hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
-                onClick={() => { clearSession(); }}
+            <Button
+              variant="ghost" size="icon"
+              className="h-7 w-7 rounded-full hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
+              onClick={() => { clearSession(); }}
             >
-                <Plus className="h-4 w-4" />
+              <Plus className="h-4 w-4" />
             </Button>
           </div>
           <ScrollArea className="h-2/5 border-t-0 flex-shrink-0">
             <div className="p-3 space-y-1.5">
               {sessions.length === 0 ? (
                 <div className="flex flex-col items-center justify-center text-center py-6 px-4 opacity-50">
-                   <MessageSquare className="h-8 w-8 mb-2 text-muted-foreground" />
-                   <p className="text-xs font-medium">No chats yet</p>
+                  <MessageSquare className="h-8 w-8 mb-2 text-muted-foreground" />
+                  <p className="text-xs font-medium">No chats yet</p>
                 </div>
               ) : (
                 sessions.map(s => (
-                  <div 
+                  <div
                     key={s.id}
                     className={`group relative flex items-center p-2 rounded-lg border transition-all cursor-pointer hover:shadow-sm ${sessionId === s.id ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-card hover:border-primary/30'}`}
                     onClick={() => { loadSession(s.id); }}
@@ -284,10 +367,11 @@ export default function NotebookPage() {
                       <p className="text-[12px] font-medium truncate text-foreground/90">{s.first_message || "Untitled Chat"}</p>
                       <p className="text-[10px] text-muted-foreground truncate">{new Date(s.created_at).toLocaleDateString()}</p>
                     </div>
-                    <Button 
-                      variant="ghost" size="icon" 
-                      className="h-6 w-6 absolute right-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10"
+                    <Button
+                      variant="ghost" size="icon"
+                      className="h-6 w-6 absolute right-1.5 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10 shrink-0"
                       onClick={(e) => { e.stopPropagation(); deleteSession.mutate(s.id); if (sessionId === s.id) clearSession(); }}
+                      title="Delete chat session"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -299,156 +383,166 @@ export default function NotebookPage() {
         </aside>
 
         {/* Center Panel — Chat */}
-        <main className="flex-1 flex flex-col bg-background relative border-r shadow-sm z-10">
-            <div className="px-6 h-12 border-b flex items-center justify-between shrink-0 bg-card z-10 shadow-sm">
-                <div className="flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4 text-primary" />
-                    <span className="font-semibold text-sm">Notebook Chat</span>
-                </div>
+        <main className="flex-1 flex flex-col bg-background relative border-r shadow-sm z-10 min-w-0 min-h-0 overflow-hidden">
+          <div className="px-5 h-12 border-b flex items-center justify-between shrink-0 bg-card/80 backdrop-blur-sm z-10 shadow-sm">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              <span className="font-semibold text-sm">Notebook Chat</span>
+              {sessionId && <Badge variant="secondary" className="text-[10px] px-2 py-0">Session active</Badge>}
             </div>
+            <div className="flex items-center gap-1.5">
+              {sources.filter(s => s.status === 'ready').length > 0 && (
+                <span className="text-[10px] text-muted-foreground">{sources.filter(s => s.status === 'ready').length} source{sources.filter(s => s.status === 'ready').length !== 1 ? 's' : ''} ready</span>
+              )}
+            </div>
+          </div>
 
-            <ScrollArea className="flex-1 px-4 md:px-8 pt-4 pb-0 bg-muted/5 relative">
+          <ScrollArea className="flex-1 min-h-0 px-4 md:px-8 pt-4 pb-0 bg-muted/5 relative">
             {messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full py-24 text-center">
-                   <div className="h-16 w-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mb-6 shadow-sm">
-                      <Music className="h-8 w-8 opacity-50 absolute" />
-                      <FileText className="h-8 w-8 ml-4 mb-4" />
-                   </div>
-                   <h3 className="font-semibold text-lg mb-2">Hello! I'm your AI Notebook Assistant.</h3>
-                   <p className="text-muted-foreground text-sm max-w-sm mb-8 leading-relaxed">
-                       I've read all the sources you uploaded. Ask me any question, ask for summaries, or let's brainstorm together.
-                   </p>
-                   <div className="grid grid-cols-2 gap-3 max-w-md w-full text-left">
-                       <Button variant="outline" className="justify-start text-xs font-normal h-auto py-2.5" onClick={() => sendMessage("Give me a comprehensive summary of these documents.")}>
-                           Summary format
-                       </Button>
-                       <Button variant="outline" className="justify-start text-xs font-normal h-auto py-2.5" onClick={() => sendMessage("Explain the most complex topic in simple terms.")}>
-                           Explain simply
-                       </Button>
-                   </div>
+              <div className="flex flex-col items-center justify-center h-full py-24 text-center">
+                <div className="h-16 w-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mb-6 shadow-sm">
+                  <Music className="h-8 w-8 opacity-50 absolute" />
+                  <FileText className="h-8 w-8 ml-4 mb-4" />
                 </div>
+                <h3 className="font-semibold text-lg mb-2">Hello! I'm your AI Notebook Assistant.</h3>
+                <p className="text-muted-foreground text-sm max-w-sm mb-8 leading-relaxed">
+                  I've read all the sources you uploaded. Ask me any question, ask for summaries, or let's brainstorm together.
+                </p>
+                <div className="grid grid-cols-2 gap-3 max-w-md w-full text-left">
+                  <Button variant="outline" className="justify-start text-xs font-normal h-auto py-2.5" onClick={() => sendMessage("Give me a comprehensive summary of these documents.")}>
+                    Summary format
+                  </Button>
+                  <Button variant="outline" className="justify-start text-xs font-normal h-auto py-2.5" onClick={() => sendMessage("Explain the most complex topic in simple terms.")}>
+                    Explain simply
+                  </Button>
+                </div>
+              </div>
             ) : (
-                <div className="space-y-6 pb-12">
+              <div className="space-y-6 pb-12">
                 {messages.map(msg => (
-                    <ChatMessage key={msg.id} message={msg} />
+                  <ChatMessage key={msg.id} message={msg} onDelete={handleDeleteMessage} />
                 ))}
                 {isSending && (
-                    <div className="flex w-full justify-start mb-6">
+                  <div className="flex w-full justify-start mb-6">
                     <div className="flex max-w-[75%] gap-4 flex-row">
-                        <div className="h-8 w-8 rounded-full flex items-center justify-center shrink-0 bg-primary/10 text-primary border border-primary/20 shadow-sm">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                        </div>
-                        <div className="bg-card rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-foreground/80 border shadow-sm animate-pulse flex items-center gap-2">
-                             Thinking...
-                        </div>
+                      <div className="h-8 w-8 rounded-full flex items-center justify-center shrink-0 bg-primary/10 text-primary border border-primary/20 shadow-sm">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      </div>
+                      <div className="bg-card rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-foreground/80 border shadow-sm animate-pulse flex items-center gap-2">
+                        Thinking...
+                      </div>
                     </div>
-                    </div>
+                  </div>
                 )}
                 <div ref={chatBottomRef} className="h-4" />
-                </div>
+              </div>
             )}
-            </ScrollArea>
-            <div className="p-4 bg-background">
-                <form onSubmit={handleSend} className="relative flex items-end gap-2 max-w-3xl mx-auto border rounded-xl bg-card shadow-sm focus-within:ring-1 focus-within:ring-primary/50 transition-shadow">
-                    <Textarea
-                        placeholder="Ask anything about your sources..."
-                        value={chatInput}
-                        onChange={e => setChatInput(e.target.value)}
-                        onKeyDown={e => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSend(e);
-                            }
-                        }}
-                        disabled={isSending}
-                        className="flex-1 min-h-[52px] max-h-[200px] border-0 focus-visible:ring-0 resize-none py-3.5 px-4 bg-transparent text-sm leading-relaxed"
-                        rows={1}
-                        autoFocus
-                    />
-                    <div className="p-2 shrink-0">
-                        <Button type="submit" size="icon" disabled={isSending || !chatInput.trim()} className="h-9 w-9 rounded-lg">
-                        <Send className="h-4 w-4" />
-                        </Button>
-                    </div>
-                </form>
-                <div className="text-center mt-2">
-                     <span className="text-[10px] text-muted-foreground opacity-70">AI can make mistakes. Always verify with citations.</span>
-                </div>
+          </ScrollArea>
+          <div className="p-4 bg-background">
+            <form onSubmit={handleSend} className="relative flex items-end gap-2 max-w-3xl mx-auto border rounded-xl bg-card shadow-sm focus-within:ring-1 focus-within:ring-primary/50 transition-shadow">
+              <Textarea
+                placeholder="Ask anything about your sources..."
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend(e);
+                  }
+                }}
+                disabled={isSending}
+                className="flex-1 min-h-[52px] max-h-[200px] border-0 focus-visible:ring-0 resize-none py-3.5 px-4 bg-transparent text-sm leading-relaxed"
+                rows={1}
+                autoFocus
+              />
+              <div className="p-2 shrink-0">
+                <Button type="submit" size="icon" disabled={isSending || !chatInput.trim()} className="h-9 w-9 rounded-lg">
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
+            </form>
+            <div className="text-center mt-2">
+              <span className="text-[10px] text-muted-foreground opacity-70">AI can make mistakes. Always verify with citations.</span>
             </div>
+          </div>
         </main>
 
-        {/* Right Panel — Studio & Notes side bar */}
-        <aside className="w-[340px] bg-card flex flex-col shrink-0 relative transition-all duration-300">
+        {/* Right Panel — Studio & Notes side bar (hidden in full screen) */}
+        <aside
+          className={`bg-card flex flex-col shrink-0 relative transition-all duration-300 ease-in-out overflow-hidden border-l
+            ${isFullScreen ? 'w-0 opacity-0 pointer-events-none' : 'w-[340px] opacity-100'}
+          `}
+        >
           <Tabs defaultValue="studio" className="flex flex-col flex-1 h-full">
             <TabsList className="w-full justify-start rounded-none border-b px-4 h-12 bg-transparent shadow-sm shrink-0">
               <TabsTrigger value="studio" className="text-xs tracking-wide">Studio</TabsTrigger>
               <TabsTrigger value="notes" className="text-xs tracking-wide">Notes</TabsTrigger>
             </TabsList>
-            
+
             {/* ── Studio Tab ── */}
             <TabsContent value="studio" className="flex-1 overflow-y-auto m-0 p-4 space-y-6 custom-scrollbar bg-muted/5">
-                
-                {/* Audio Overview Card */}
-                <div className="rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
-                   <div className="p-4 border-b bg-muted/20">
-                      <h3 className="font-semibold text-sm flex items-center gap-2 text-primary">
-                         <Radio className="h-4 w-4" /> Audio Overview
-                      </h3>
-                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">Turn your documents into an engaging 2-person podcast conversation.</p>
-                   </div>
-                   <div className="p-4">
-                      {overview ? (
-                         <div className="space-y-3">
-                             <div className="flex gap-2 mb-2">
-                                 <Badge variant="secondary" className="text-[10px]">Podcast Ready</Badge>
-                                 <Button variant="ghost" size="sm" className="h-5 px-2 ml-auto text-xs" onClick={() => setOverview(null)}>Clear</Button>
-                             </div>
-                             <div className="max-h-[250px] overflow-y-auto text-[13px] space-y-2 pr-1 custom-scrollbar">
-                                {(overview.turns ?? []).map((turn, i) => (
-                                <div key={i} className="flex flex-col gap-0.5">
-                                    <span className={`font-semibold text-[11px] uppercase tracking-wider ${turn.speaker === 'ALEX' ? 'text-blue-500' : 'text-emerald-500'}`}>
-                                    {turn.speaker}
-                                    </span>
-                                    <span className="text-muted-foreground leading-relaxed">{turn.text}</span>
-                                </div>
-                                ))}
-                             </div>
-                         </div>
-                      ) : (
-                          <Button 
-                             className="w-full text-xs font-medium bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 border-0 shadow-md"
-                             onClick={handleOverview}
-                             disabled={overviewLoading || sources.filter(s => s.status === 'ready').length === 0}
-                          >
-                             {overviewLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Music className="h-4 w-4 mr-2" />}
-                             {overviewLoading ? "Generating..." : "Generate Podcast"}
-                          </Button>
-                      )}
-                   </div>
-                </div>
 
-                {/* Quick Actions Card */}
-                <div className="rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
-                    <div className="p-4 border-b bg-muted/20">
-                      <h3 className="font-semibold text-sm flex items-center gap-2">
-                         <FileText className="h-4 w-4 text-orange-500" /> Study Guides
-                      </h3>
-                   </div>
-                   <div className="p-3 grid grid-cols-2 gap-2">
-                        <Button variant="outline" size="sm" className="h-auto py-3 px-2 flex flex-col gap-1 items-center justify-center border-muted hover:border-primary/30 hover:bg-primary/5" onClick={() => sendMessage("Create a detailed study guide summarizing all key topics from the sources.")}>
-                            <span className="font-medium text-[11px]">Summary</span>
-                        </Button>
-                        <Button variant="outline" size="sm" className="h-auto py-3 px-2 flex flex-col gap-1 items-center justify-center border-muted hover:border-primary/30 hover:bg-primary/5" onClick={() => sendMessage("Generate a 5-question multiple choice quiz to test my knowledge on these materials.")}>
-                            <span className="font-medium text-[11px]">Quiz Me</span>
-                        </Button>
-                        <Button variant="outline" size="sm" className="h-auto py-3 px-2 flex flex-col gap-1 items-center justify-center border-muted hover:border-primary/30 hover:bg-primary/5" onClick={() => sendMessage("What are the most frequently asked questions about these topics? Provide the questions and answers.")}>
-                            <span className="font-medium text-[11px]">FAQ / Q&A</span>
-                        </Button>
-                        <Button variant="outline" size="sm" className="h-auto py-3 px-2 flex flex-col gap-1 items-center justify-center border-muted hover:border-primary/30 hover:bg-primary/5" onClick={() => sendMessage("Generate a timeline or step-by-step breakdown of the processes mentioned in the sources.")}>
-                            <span className="font-medium text-[11px]">Timeline</span>
-                        </Button>
-                   </div>
+              {/* Audio Overview Card */}
+              <div className="rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
+                <div className="p-4 border-b bg-muted/20">
+                  <h3 className="font-semibold text-sm flex items-center gap-2 text-primary">
+                    <Radio className="h-4 w-4" /> Audio Overview
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">Turn your documents into an engaging 2-person podcast conversation.</p>
                 </div>
+                <div className="p-4">
+                  {overview ? (
+                    <div className="space-y-3">
+                      <div className="flex gap-2 mb-2">
+                        <Badge variant="secondary" className="text-[10px]">Podcast Ready</Badge>
+                        <Button variant="ghost" size="sm" className="h-5 px-2 ml-auto text-xs" onClick={() => setOverview(null)}>Clear</Button>
+                      </div>
+                      <div className="max-h-[250px] overflow-y-auto text-[13px] space-y-2 pr-1 custom-scrollbar">
+                        {(overview.turns ?? []).map((turn, i) => (
+                          <div key={i} className="flex flex-col gap-0.5">
+                            <span className={`font-semibold text-[11px] uppercase tracking-wider ${turn.speaker === 'ALEX' ? 'text-blue-500' : 'text-emerald-500'}`}>
+                              {turn.speaker}
+                            </span>
+                            <span className="text-muted-foreground leading-relaxed">{turn.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <Button
+                      className="w-full text-xs font-medium bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 border-0 shadow-md"
+                      onClick={handleOverview}
+                      disabled={overviewLoading || sources.filter(s => s.status === 'ready').length === 0}
+                    >
+                      {overviewLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Music className="h-4 w-4 mr-2" />}
+                      {overviewLoading ? "Generating..." : "Generate Podcast"}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Quick Actions Card */}
+              <div className="rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
+                <div className="p-4 border-b bg-muted/20">
+                  <h3 className="font-semibold text-sm flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-orange-500" /> Study Guides
+                  </h3>
+                </div>
+                <div className="p-3 grid grid-cols-2 gap-2">
+                  <Button variant="outline" size="sm" className="h-auto py-3 px-2 flex flex-col gap-1 items-center justify-center border-muted hover:border-primary/30 hover:bg-primary/5" onClick={() => sendMessage("Create a detailed study guide summarizing all key topics from the sources.")}>
+                    <span className="font-medium text-[11px]">Summary</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-auto py-3 px-2 flex flex-col gap-1 items-center justify-center border-muted hover:border-primary/30 hover:bg-primary/5" onClick={() => sendMessage("Generate a 5-question multiple choice quiz to test my knowledge on these materials.")}>
+                    <span className="font-medium text-[11px]">Quiz Me</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-auto py-3 px-2 flex flex-col gap-1 items-center justify-center border-muted hover:border-primary/30 hover:bg-primary/5" onClick={() => sendMessage("What are the most frequently asked questions about these topics? Provide the questions and answers.")}>
+                    <span className="font-medium text-[11px]">FAQ / Q&A</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-auto py-3 px-2 flex flex-col gap-1 items-center justify-center border-muted hover:border-primary/30 hover:bg-primary/5" onClick={() => sendMessage("Generate a timeline or step-by-step breakdown of the processes mentioned in the sources.")}>
+                    <span className="font-medium text-[11px]">Timeline</span>
+                  </Button>
+                </div>
+              </div>
 
             </TabsContent>
 
@@ -456,85 +550,85 @@ export default function NotebookPage() {
             <TabsContent value="notes" className="flex-1 flex flex-col m-0 bg-background h-full">
               {/* Note Selection / Top Bar */}
               <div className="p-3 border-b flex items-center justify-between shrink-0 bg-muted/10">
-                 {!editingNote ? (
-                     <div className="flex-1 flex items-center justify-between">
-                         <span className="text-xs font-semibold text-muted-foreground">Select a note to edit</span>
-                         <Button size="sm" onClick={() => setEditingNote({ id: 'new', title: '', content: '' })} className="h-7 px-3 text-xs rounded-full">
-                            <Plus className="h-3 w-3 mr-1" /> New
-                         </Button>
-                     </div>
-                 ) : (
-                     <div className="flex-1 flex items-center justify-between">
-                         <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setEditingNote(null)}>
-                            <ChevronLeft className="h-3 w-3 mr-1" /> Back
-                         </Button>
-                         <Tabs value={noteMode} onValueChange={setNoteMode} className="h-7">
-                            <TabsList className="h-7 bg-muted/50 p-0.5">
-                                <TabsTrigger value="edit" className="text-[10px] px-2.5 h-6">Edit</TabsTrigger>
-                                <TabsTrigger value="preview" className="text-[10px] px-2.5 h-6">Preview</TabsTrigger>
-                            </TabsList>
-                         </Tabs>
-                     </div>
-                 )}
+                {!editingNote ? (
+                  <div className="flex-1 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-muted-foreground">Select a note to edit</span>
+                    <Button size="sm" onClick={() => setEditingNote({ id: 'new', title: '', content: '' })} className="h-7 px-3 text-xs rounded-full">
+                      <Plus className="h-3 w-3 mr-1" /> New
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex items-center justify-between">
+                    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setEditingNote(null)}>
+                      <ChevronLeft className="h-3 w-3 mr-1" /> Back
+                    </Button>
+                    <Tabs value={noteMode} onValueChange={setNoteMode} className="h-7">
+                      <TabsList className="h-7 bg-muted/50 p-0.5">
+                        <TabsTrigger value="edit" className="text-[10px] px-2.5 h-6">Edit</TabsTrigger>
+                        <TabsTrigger value="preview" className="text-[10px] px-2.5 h-6">Preview</TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                  </div>
+                )}
               </div>
 
               {/* Note Content Area */}
               <div className="flex-1 overflow-hidden flex flex-col relative custom-scrollbar">
                 {!editingNote ? (
-                    <div className="p-2 space-y-1 overflow-y-auto">
-                        {notes.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground opacity-60">
-                                <FileText className="h-8 w-8 mb-2" />
-                                <span className="text-xs">No saved notes</span>
-                            </div>
-                        ) : notes.map(note => (
-                            <div key={note.id} className="group flex items-center bg-card border rounded-lg p-1 hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer" onClick={() => setEditingNote({ id: note.id, title: note.title, content: note.content })}>
-                                <div className="flex-1 px-3 py-2 min-w-0">
-                                    <p className="text-[13px] font-medium truncate mb-0.5">{note.title || 'Untitled Note'}</p>
-                                    <p className="text-[10px] text-muted-foreground truncate">{note.content ? note.content.slice(0, 40) + '...' : 'Empty content'}</p>
-                                </div>
-                                <Button
-                                    variant="ghost" size="icon"
-                                    className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity mr-1 shrink-0 bg-destructive/10 hover:bg-destructive hover:text-white"
-                                    onClick={(e) => { e.stopPropagation(); deleteNote.mutate(note.id); }}
-                                >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="flex-1 flex flex-col p-3">
-                        <Input
-                            className="text-base font-semibold border-b border-transparent focus-visible:border-primary rounded-none focus-visible:ring-0 px-1 py-4 mb-2 shadow-none bg-transparent"
-                            placeholder="Note Title"
-                            value={editingNote.title}
-                            onChange={e => setEditingNote(n => ({ ...n, title: e.target.value }))}
-                        />
-                        {noteMode === 'edit' ? (
-                            <Textarea
-                                className="flex-1 resize-none font-mono text-[13px] leading-relaxed p-2 bg-transparent border-0 focus-visible:ring-0 w-full rounded-none tracking-tight custom-scrollbar"
-                                placeholder="Start writing in Markdown (or tell AI to 'save this to my note')..."
-                                value={editingNote.content}
-                                autoFocus
-                                onChange={e => setEditingNote(n => ({ ...n, content: e.target.value }))}
-                            />
-                        ) : (
-                            <ScrollArea className="flex-1 p-2 bg-muted/5 rounded-md custom-scrollbar">
-                                <div className="prose prose-sm dark:prose-invert max-w-none text-[13px] leading-normal">
-                                    <ReactMarkdown>{editingNote.content || '*Empty note*'}</ReactMarkdown>
-                                </div>
-                            </ScrollArea>
-                        )}
-                        <div className="pt-3 mt-auto flex gap-2">
-                             <Button size="sm" className="flex-1" onClick={handleSaveNote}>Save</Button>
-                             {editingNote.id !== 'new' && (
-                                <Button size="sm" variant="destructive" className="shrink-0" onClick={async () => { await deleteNote.mutateAsync(editingNote.id); setEditingNote(null); }}>
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
-                             )}
+                  <div className="p-2 space-y-1 overflow-y-auto">
+                    {notes.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground opacity-60">
+                        <FileText className="h-8 w-8 mb-2" />
+                        <span className="text-xs">No saved notes</span>
+                      </div>
+                    ) : notes.map(note => (
+                      <div key={note.id} className="group flex items-center bg-card border rounded-lg p-1 hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer" onClick={() => setEditingNote({ id: note.id, title: note.title, content: note.content })}>
+                        <div className="flex-1 px-3 py-2 min-w-0">
+                          <p className="text-[13px] font-medium truncate mb-0.5">{note.title || 'Untitled Note'}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">{note.content ? note.content.slice(0, 40) + '...' : 'Empty content'}</p>
                         </div>
+                        <Button
+                          variant="ghost" size="icon"
+                          className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity mr-1 shrink-0 bg-destructive/10 hover:bg-destructive hover:text-white"
+                          onClick={(e) => { e.stopPropagation(); deleteNote.mutate(note.id); }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col p-3">
+                    <Input
+                      className="text-base font-semibold border-b border-transparent focus-visible:border-primary rounded-none focus-visible:ring-0 px-1 py-4 mb-2 shadow-none bg-transparent"
+                      placeholder="Note Title"
+                      value={editingNote.title}
+                      onChange={e => setEditingNote(n => ({ ...n, title: e.target.value }))}
+                    />
+                    {noteMode === 'edit' ? (
+                      <Textarea
+                        className="flex-1 resize-none font-mono text-[13px] leading-relaxed p-2 bg-transparent border-0 focus-visible:ring-0 w-full rounded-none tracking-tight custom-scrollbar"
+                        placeholder="Start writing in Markdown (or tell AI to 'save this to my note')..."
+                        value={editingNote.content}
+                        autoFocus
+                        onChange={e => setEditingNote(n => ({ ...n, content: e.target.value }))}
+                      />
+                    ) : (
+                      <ScrollArea className="flex-1 p-2 bg-muted/5 rounded-md custom-scrollbar">
+                        <div className="prose prose-sm dark:prose-invert max-w-none text-[13px] leading-normal">
+                          <ReactMarkdown>{editingNote.content || '*Empty note*'}</ReactMarkdown>
+                        </div>
+                      </ScrollArea>
+                    )}
+                    <div className="pt-3 mt-auto flex gap-2">
+                      <Button size="sm" className="flex-1" onClick={handleSaveNote}>Save</Button>
+                      {editingNote.id !== 'new' && (
+                        <Button size="sm" variant="destructive" className="shrink-0" onClick={async () => { await deleteNote.mutateAsync(editingNote.id); setEditingNote(null); }}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
+                  </div>
                 )}
               </div>
             </TabsContent>
@@ -546,26 +640,30 @@ export default function NotebookPage() {
 }
 
 // ── Chat Message component ─────────────────────────────────────────────
-function ChatMessage({ message }) {
+function ChatMessage({ message, onDelete }) {
   const isUser = message.role === 'user';
   const [hasError, setHasError] = useState(false);
 
   return (
-    <div className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'} mb-6`}>
-      <div className={`flex max-w-[85%] md:max-w-[75%] gap-4 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+    <div className={`group flex w-full ${isUser ? 'justify-end' : 'justify-start'} mb-5`}>
+      <div className={`flex max-w-[85%] md:max-w-[75%] gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} items-start`}>
+        {/* AI Avatar */}
         {!isUser && (
-          <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-sm font-semibold select-none ${hasError ? 'bg-destructive/20 text-destructive border border-destructive/30' : 'bg-primary/10 text-primary border border-primary/20'}`}>
+          <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold select-none mt-0.5 shadow-sm ${hasError
+            ? 'bg-destructive/20 text-destructive border border-destructive/30'
+            : 'bg-gradient-to-br from-primary/80 to-primary text-primary-foreground'
+            }`}>
             {hasError ? '⚠' : 'AI'}
           </div>
         )}
 
-        <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} gap-2 min-w-0`}>
+        <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} gap-1.5 min-w-0`}>
           {isUser ? (
-            <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap shadow-sm">
+            <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap shadow-md">
               {message.content}
             </div>
           ) : (
-            <div className="text-[15px] leading-relaxed text-foreground mt-1 w-full">
+            <div className="text-sm leading-relaxed text-foreground w-full">
               <div className="prose prose-sm dark:prose-invert max-w-none break-words">
                 <ReactMarkdown
                   components={{
@@ -573,18 +671,14 @@ function ChatMessage({ message }) {
                     code: ({ node, inline, className, children, ...props }) => {
                       const match = /language-(\w+)/.exec(className || '')
                       return !inline ? (
-                        <div className="mt-2 mb-4 rounded-md overflow-hidden bg-muted/50 border">
-                          <div className="px-3 py-1.5 bg-muted text-xs text-muted-foreground font-mono flex items-center">{match?.[1] || 'code'}</div>
+                        <div className="mt-2 mb-4 rounded-lg overflow-hidden bg-muted/60 border">
+                          <div className="px-3 py-1.5 bg-muted/80 text-xs text-muted-foreground font-mono flex items-center border-b">{match?.[1] || 'code'}</div>
                           <div className="p-3 overflow-x-auto">
-                            <code className="text-sm font-mono" {...props}>
-                              {children}
-                            </code>
+                            <code className="text-sm font-mono" {...props}>{children}</code>
                           </div>
                         </div>
                       ) : (
-                        <code className="bg-muted/50 text-foreground rounded px-1.5 py-0.5 text-[0.9em] font-mono border" {...props}>
-                          {children}
-                        </code>
+                        <code className="bg-muted/60 text-foreground rounded px-1.5 py-0.5 text-[0.88em] font-mono border" {...props}>{children}</code>
                       )
                     }
                   }}
@@ -597,14 +691,14 @@ function ChatMessage({ message }) {
 
           {/* Citations */}
           {!isUser && message.citations?.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-1">
+            <div className="flex flex-wrap gap-1.5 mt-0.5">
               {message.citations.map((c, i) => (
                 <span
                   key={i}
-                  className="flex items-center gap-1 text-[11px] font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors rounded-full px-2.5 py-1 cursor-default border border-border/50"
+                  className="flex items-center gap-1 text-[10px] font-medium bg-muted border border-border/60 text-muted-foreground hover:bg-secondary hover:text-secondary-foreground transition-colors rounded-full px-2.5 py-1 cursor-default"
                   title={c.title}
                 >
-                  <span className="opacity-70">{i + 1}.</span>
+                  <span className="opacity-60">{i + 1}.</span>
                   {c.file_type === 'pdf'
                     ? `${c.title} (pg ${c.page_number})`
                     : `${c.title} (${fmtTime(c.timestamp_start)})`
@@ -614,6 +708,17 @@ function ChatMessage({ message }) {
             </div>
           )}
         </div>
+
+        {/* Delete button — appears on hover */}
+        {onDelete && (
+          <button
+            onClick={() => onDelete(message.id)}
+            className={`shrink-0 h-6 w-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-150 mt-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 ${isUser ? 'order-first' : ''}`}
+            title="Delete message"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -623,3 +728,4 @@ const fmtTime = (s) => {
   if (s == null) return '??:??';
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 };
+

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useRef } from 'react';
 import { chatApi } from '../api/index.js';
+import { toast } from 'sonner';
 
 export const useChatSessions = (notebookId) => {
   return useQuery({
@@ -92,6 +93,7 @@ export const useChat = (notebookId) => {
     sendMessage: sendMutation.mutate,
     loadSession,
     clearSession,
+    setMessages,
   };
 };
 
@@ -100,5 +102,12 @@ export const useDeleteSession = (notebookId) => {
   return useMutation({
     mutationFn: chatApi.deleteSession,
     onSuccess:  () => qc.invalidateQueries({ queryKey: ['chat-sessions', notebookId] }),
+  });
+};
+
+export const useDeleteMessage = () => {
+  return useMutation({
+    mutationFn: chatApi.deleteMessage,
+    onError: () => toast.error('Failed to delete message.'),
   });
 };

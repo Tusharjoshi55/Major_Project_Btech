@@ -52,6 +52,9 @@ export const chatApi = {
 
   deleteSession: (sessionId) =>
     api.delete(`/chat/sessions/${sessionId}`).then(r => r.data),
+
+  deleteMessage: (messageId) =>
+    api.delete(`/chat/message/${messageId}`).then(r => r.data),
 };
 
 // ─── Notes ───────────────────────────────────────────────────────────

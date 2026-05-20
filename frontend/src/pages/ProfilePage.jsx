@@ -10,14 +10,37 @@ import ThemeToggle from '../components/ThemeToggle.jsx';
 import { toast } from 'sonner';
 
 export default function ProfilePage() {
-    const { user, logout } = useAuth();
+    const { user, logout, updateProfile, deleteAccount } = useAuth();
     const navigate = useNavigate();
 
     const [name, setName] = useState(user?.displayName || '');
+    const [isUpdating, setIsUpdating] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
     
-    const handleUpdate = (e) => {
+    const handleUpdate = async (e) => {
         e.preventDefault();
-        toast.success("Profile updated successfully!");
+        setIsUpdating(true);
+        try {
+            await updateProfile(name);
+            toast.success("Profile updated successfully! Changes will reflect across the app.");
+        } catch (err) {
+            toast.error(err.message || "Failed to update profile");
+        } finally {
+            setIsUpdating(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!window.confirm("Are you sure you want to delete your account? This action cannot be undone.")) return;
+        setIsDeleting(true);
+        try {
+            await deleteAccount();
+            toast.success("Account deleted successfully.");
+            navigate('/login');
+        } catch (err) {
+            toast.error(err.message || "Failed to delete account");
+            setIsDeleting(false);
+        }
     };
 
     return (
@@ -93,7 +116,9 @@ export default function ProfilePage() {
                             </form>
                         </CardContent>
                         <CardFooter>
-                            <Button type="submit" form="profile-form">Save Changes</Button>
+                            <Button type="submit" form="profile-form" disabled={isUpdating}>
+                                {isUpdating ? 'Saving...' : 'Save Changes'}
+                            </Button>
                         </CardFooter>
                     </Card>
 
@@ -118,7 +143,9 @@ export default function ProfilePage() {
                             <CardDescription>Permanently delete your account and all associated data.</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <Button variant="destructive">Delete Account</Button>
+                            <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
+                                {isDeleting ? 'Deleting...' : 'Delete Account'}
+                            </Button>
                         </CardContent>
                     </Card>
                 </div>

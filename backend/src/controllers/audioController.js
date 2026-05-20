@@ -1,5 +1,5 @@
-import pool   from '../config/db.js';
-import openai  from '../config/openai.js';
+import pool from '../config/db.js';
+import openai from '../config/openai.js';
 
 // POST /api/audio/overview
 export const generateAudioOverview = async (req, res, next) => {
@@ -37,20 +37,21 @@ export const generateAudioOverview = async (req, res, next) => {
       }
     }).join('\n\n---\n\n');
 
-    const systemPrompt = `You are a podcast script writer. Create a lively, engaging 2-person podcast conversation (Host: Alex, Guest: Sam) based ONLY on the provided source material.
+    const systemPrompt = `You are an expert scriptwriter. Create a deep, highly engaging 2-person discussion based ONLY on the provided source material.
 
 Rules:
-- Alex asks insightful questions; Sam explains ideas clearly with enthusiasm
-- Include natural back-and-forth, occasional humor, and "wow" moments
-- Cover the most important insights from the sources
-- Length: approximately 800-1000 words of dialogue
-- Format exactly as:
-  ALEX: [dialogue]
-  SAM: [dialogue]
-- End with a concise summary of key takeaways`;
+1. START WITH A HOOK: Do not use generic podcast intros (like "Welcome to the show"). Start immediately with a mind-blowing fact, a fascinating question, or a profound insight about the core topic to instantly maximize listener engagement.
+2. NO NAMES IN DIALOGUE: The speakers should NEVER say their own names or address each other by name (e.g., no "Hi, I'm Alex"). Just jump straight into the ideas and switch turns naturally.
+3. DYNAMIC FLOW: Speaker 1 (ALEX) drives the discussion with curious, insightful questions. Speaker 2 (SAM) explains concepts with enthusiasm, depth, and analogies. Include natural back-and-forth and "wow" moments.
+4. FORMAT: You MUST format the script exactly like this so the system can parse the speakers:
+ALEX: [dialogue]
+SAM: [dialogue]
+(Alternate turns strictly using these exact prefixes).
+5. LENGTH: Approximately 800-1000 words.
+6. ENDING: End with a thought-provoking concluding insight.`;
 
     const completion = await openai.chat.completions.create({
-      model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
+      model: 'google/gemini-2.0-flash-lite-001',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Create a podcast episode from these sources:\n\n${context}` },

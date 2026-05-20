@@ -20,6 +20,7 @@ import {
   Upload, Send, Plus, ChevronLeft,
   Loader2, Radio, MessageSquare,
   Maximize2, Minimize2, X, BookOpen, Eye, Sparkles,
+  Play, Square, Pause,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import ThemeToggle from '../components/ThemeToggle.jsx';
@@ -54,6 +55,7 @@ export default function NotebookPage() {
   const [noteMode, setNoteMode] = useState('edit');
   const [overview, setOverview] = useState(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
+  const [podcastPlaybackState, setPodcastPlaybackState] = useState('idle'); // 'idle' | 'playing' | 'paused'
   const [isDragging, setIsDragging] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   // Document overview modal: { source, summaryNote }
@@ -142,6 +144,59 @@ export default function NotebookPage() {
       setOverviewLoading(false);
     }
   };
+
+  const handleTogglePodcast = () => {
+    if (!overview || !overview.turns) return;
+
+    if (podcastPlaybackState === 'playing') {
+      window.speechSynthesis.pause();
+      setPodcastPlaybackState('paused');
+      return;
+    }
+
+    if (podcastPlaybackState === 'paused') {
+      window.speechSynthesis.resume();
+      setPodcastPlaybackState('playing');
+      return;
+    }
+
+    // Start fresh
+    window.speechSynthesis.cancel();
+    setPodcastPlaybackState('playing');
+
+    const voices = window.speechSynthesis.getVoices();
+    // Try to find distinct voices (often browser-dependent)
+    const femaleVoice = voices.find(v => v.name.includes('Female') || v.name.includes('Samantha') || v.name.includes('Zira') || v.name.includes('Google UK English Female')) || voices[0];
+    const maleVoice = voices.find(v => v.name.includes('Male') || v.name.includes('David') || v.name.includes('Mark') || v.name.includes('Google UK English Male')) || voices[1] || voices[0];
+
+    overview.turns.forEach((turn, index) => {
+      const utterance = new SpeechSynthesisUtterance(turn.text);
+      utterance.voice = turn.speaker === 'ALEX' ? maleVoice : femaleVoice;
+      utterance.rate = 1.05; 
+      
+      // Auto-stop when the final utterance completes
+      if (index === overview.turns.length - 1) {
+        utterance.onend = () => setPodcastPlaybackState('idle');
+        utterance.onerror = () => setPodcastPlaybackState('idle');
+      }
+      
+      window.speechSynthesis.speak(utterance);
+    });
+  };
+
+  const handleStopPodcast = () => {
+    window.speechSynthesis.cancel();
+    setPodcastPlaybackState('idle');
+  };
+
+  useEffect(() => {
+    // Cleanup speech synthesis on unmount
+    return () => {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   // ── Note helpers ───────────────────────────────────────────────────
   const handleSaveNote = async () => {
@@ -540,9 +595,29 @@ export default function NotebookPage() {
                 <div className="p-4">
                   {overview ? (
                     <div className="space-y-3">
-                      <div className="flex gap-2 mb-2">
+                      <div className="flex items-center gap-2 mb-3">
                         <Badge variant="secondary" className="text-[10px]">Podcast Ready</Badge>
-                        <Button variant="ghost" size="sm" className="h-5 px-2 ml-auto text-xs" onClick={() => setOverview(null)}>Clear</Button>
+                        <Button 
+                          variant="default"
+                          size="sm" 
+                          className={`h-6 px-3 ml-auto text-[10px] font-bold tracking-wide shadow-sm transition-all ${podcastPlaybackState === 'playing' ? 'bg-indigo-600 hover:bg-indigo-700 animate-pulse' : ''}`}
+                          onClick={handleTogglePodcast}
+                        >
+                          {podcastPlaybackState === 'playing' ? <Pause className="h-3 w-3 mr-1.5 fill-current" /> : <Play className="h-3 w-3 mr-1.5 fill-current" />}
+                          {podcastPlaybackState === 'playing' ? "PAUSE AUDIO" : podcastPlaybackState === 'paused' ? "RESUME AUDIO" : "PLAY AUDIO"}
+                        </Button>
+                        {podcastPlaybackState !== 'idle' && (
+                          <Button variant="destructive" size="sm" className="h-6 px-2" onClick={handleStopPodcast}>
+                            <Square className="h-3 w-3 fill-current" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => {
+                          window.speechSynthesis.cancel();
+                          setPodcastPlaybackState('idle');
+                          setOverview(null);
+                        }}>
+                          <X className="h-3 w-3" />
+                        </Button>
                       </div>
                       <div className="max-h-[250px] overflow-y-auto text-[13px] space-y-2 pr-1 custom-scrollbar">
                         {(overview.turns ?? []).map((turn, i) => (

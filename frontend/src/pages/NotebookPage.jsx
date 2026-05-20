@@ -19,7 +19,7 @@ import {
   FileText, Music, Video, Trash2,
   Upload, Send, Plus, ChevronLeft,
   Loader2, Radio, MessageSquare,
-  Maximize2, Minimize2, X, BookOpen, Eye,
+  Maximize2, Minimize2, X, BookOpen, Eye, Sparkles,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import ThemeToggle from '../components/ThemeToggle.jsx';
@@ -456,10 +456,10 @@ export default function NotebookPage() {
                   I've read all the sources you uploaded. Ask me any question, ask for summaries, or let's brainstorm together.
                 </p>
                 <div className="grid grid-cols-2 gap-3 max-w-md w-full text-left">
-                  <Button variant="outline" className="justify-start text-xs font-normal h-auto py-2.5" onClick={() => sendMessage("Give me a comprehensive summary of these documents.")}>
+                  <Button variant="outline" className="justify-start text-xs font-normal h-auto py-2.5" onClick={() => sendMessage("Generate a comprehensive, professionally structured summary of these documents. Please organize the response exactly as follows:\n\n1. **Executive Overview**: A detailed introductory paragraph.\n2. **Core Concepts & Key Topics**: Bold headings dividing different subjects.\n3. **Crucial Bullet Points**: Point-by-point breakdown detailing key facts.\n4. **Main Takeaway**: A distinct blockquote highlight (using `>`).\n5. **Conclusion**: A formal closing summary paragraph.")}>
                     Summary format
                   </Button>
-                  <Button variant="outline" className="justify-start text-xs font-normal h-auto py-2.5" onClick={() => sendMessage("Explain the most complex topic in simple terms.")}>
+                  <Button variant="outline" className="justify-start text-xs font-normal h-auto py-2.5" onClick={() => sendMessage("Explain the most complex topic in simple terms with examples and analogies.")}>
                     Explain simply
                   </Button>
                 </div>
@@ -576,7 +576,7 @@ export default function NotebookPage() {
                   </h3>
                 </div>
                 <div className="p-3 grid grid-cols-2 gap-2">
-                  <Button variant="outline" size="sm" className="h-auto py-3 px-2 flex flex-col gap-1 items-center justify-center border-muted hover:border-primary/30 hover:bg-primary/5" onClick={() => sendMessage("Create a detailed study guide summarizing all key topics from the sources.")}>
+                  <Button variant="outline" size="sm" className="h-auto py-3 px-2 flex flex-col gap-1 items-center justify-center border-muted hover:border-primary/30 hover:bg-primary/5" onClick={() => sendMessage("Generate a comprehensive, professionally structured study guide summary. Please organize it strictly with:\n\n- **Executive Overview**: A detailed introductory paragraph.\n- **Core Concepts & Key Topics**: Bold headings dividing different subjects.\n- **Crucial Bullet Points**: Point-by-point breakdown detailing key facts.\n- **Main Takeaway**: A distinct blockquote highlight (using `>`).\n- **Conclusion**: A formal closing summary paragraph.")}>
                     <span className="font-medium text-[11px]">Summary</span>
                   </Button>
                   <Button variant="outline" size="sm" className="h-auto py-3 px-2 flex flex-col gap-1 items-center justify-center border-muted hover:border-primary/30 hover:bg-primary/5" onClick={() => sendMessage("Generate a 5-question multiple choice quiz to test my knowledge on these materials.")}>
@@ -691,41 +691,90 @@ function ChatMessage({ message, onDelete }) {
   const isUser = message.role === 'user';
   const [hasError, setHasError] = useState(false);
 
+  // Clean user message to hide prompt-engineering instructions
+  let displayContent = message.content;
+  if (isUser && displayContent) {
+    displayContent = displayContent.split("\n\nFormat your summary response")[0];
+    displayContent = displayContent.split("Please organize")[0].trim();
+    if (displayContent.endsWith("with:") || displayContent.endsWith("as follows:")) {
+      displayContent = displayContent.replace(/(with:|as follows:)$/, "").trim();
+    }
+  }
+
   return (
     <div className={`group flex w-full ${isUser ? 'justify-end' : 'justify-start'} mb-5`}>
       <div className={`flex max-w-[85%] md:max-w-[75%] gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} items-start`}>
         {/* AI Avatar */}
         {!isUser && (
-          <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold select-none mt-0.5 shadow-sm ${hasError
+          <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 select-none mt-0.5 shadow-sm ${hasError
             ? 'bg-destructive/20 text-destructive border border-destructive/30'
-            : 'bg-gradient-to-br from-primary/80 to-primary text-primary-foreground'
+            : 'bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-white'
             }`}>
-            {hasError ? '⚠' : 'AI'}
+            {hasError ? '⚠' : <Sparkles className="h-4 w-4" />}
           </div>
         )}
 
-        <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} gap-1.5 min-w-0`}>
+        <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} gap-1.5 min-w-0 flex-1`}>
           {isUser ? (
-            <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap shadow-md">
-              {message.content}
+            <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-5 py-3 text-sm leading-relaxed whitespace-pre-wrap shadow-md max-w-max">
+              {displayContent}
             </div>
           ) : (
-            <div className="text-sm leading-relaxed text-foreground w-full">
+            <div className="bg-card/75 border border-border/50 rounded-2xl rounded-tl-sm px-5 py-4 shadow-sm w-full text-foreground max-w-none break-words">
               <div className="prose prose-sm dark:prose-invert max-w-none break-words">
                 <ReactMarkdown
                   components={{
-                    p: ({ children }) => <p className="mb-4 last:mb-0 leading-7">{children}</p>,
+                    h1: ({ children }) => <h1 className="text-[21px] font-bold mt-7 mb-4 text-foreground/90 leading-tight border-b border-border/60 pb-2">{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-[18.5px] font-bold mt-6 mb-3 text-foreground/90 leading-tight">{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-[16px] font-semibold mt-5 mb-2.5 text-foreground/90 leading-tight">{children}</h3>,
+                    p: ({ children }) => <p className="mb-4 last:mb-0 leading-relaxed text-[14.5px] text-foreground/80">{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc pl-6 mb-4.5 space-y-2 text-[14.5px] text-foreground/80">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal pl-6 mb-4.5 space-y-2 text-[14.5px] text-foreground/80">{children}</ol>,
+                    li: ({ children }) => <li className="pl-1 marker:text-primary/70 leading-relaxed">{children}</li>,
+                    strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                    blockquote: ({ children }) => (
+                      <blockquote className="border-l-4 border-primary/50 pl-4 py-2 my-3.5 bg-primary/5 rounded-r-lg italic text-[14.5px] text-foreground/95">
+                        {children}
+                      </blockquote>
+                    ),
+                    a: ({ href, children }) => (
+                      <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium transition-colors">
+                        {children}
+                      </a>
+                    ),
+                    table: ({ children }) => (
+                      <div className="overflow-x-auto my-4.5 rounded-xl border border-border/80 shadow-sm">
+                        <table className="w-full text-left border-collapse text-[13.5px]">{children}</table>
+                      </div>
+                    ),
+                    thead: ({ children }) => <thead className="bg-muted/80 border-b font-semibold text-muted-foreground">{children}</thead>,
+                    tbody: ({ children }) => <tbody className="divide-y divide-border/40">{children}</tbody>,
+                    tr: ({ children }) => <tr className="hover:bg-muted/10 transition-colors odd:bg-muted/5">{children}</tr>,
+                    th: ({ children }) => <th className="px-4 py-2.5 font-medium">{children}</th>,
+                    td: ({ children }) => <td className="px-4 py-2 text-foreground/80">{children}</td>,
                     code: ({ node, inline, className, children, ...props }) => {
                       const match = /language-(\w+)/.exec(className || '')
+                      const codeContent = String(children).replace(/\n$/, '')
                       return !inline ? (
-                        <div className="mt-2 mb-4 rounded-lg overflow-hidden bg-muted/60 border">
-                          <div className="px-3 py-1.5 bg-muted/80 text-xs text-muted-foreground font-mono flex items-center border-b">{match?.[1] || 'code'}</div>
-                          <div className="p-3 overflow-x-auto">
-                            <code className="text-sm font-mono" {...props}>{children}</code>
+                        <div className="mt-3 mb-4 rounded-xl overflow-hidden bg-muted/30 border border-border/80 shadow-sm">
+                          <div className="px-4 py-2 bg-muted/60 text-xs text-muted-foreground font-mono flex items-center justify-between border-b">
+                            <span>{match?.[1] || 'code'}</span>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(codeContent);
+                                toast.success("Copied to clipboard!");
+                              }}
+                              className="px-2.5 py-1 rounded bg-background border hover:bg-muted text-[10px] font-medium transition-all flex items-center gap-1 active:scale-95 shadow-sm"
+                            >
+                              📋 Copy
+                            </button>
+                          </div>
+                          <div className="p-4 overflow-x-auto text-[13.5px]">
+                            <code className="font-mono text-foreground" {...props}>{children}</code>
                           </div>
                         </div>
                       ) : (
-                        <code className="bg-muted/60 text-foreground rounded px-1.5 py-0.5 text-[0.88em] font-mono border" {...props}>{children}</code>
+                        <code className="bg-muted/80 text-foreground font-mono rounded px-1.5 py-0.5 text-[0.88em] border border-border/40 font-semibold" {...props}>{children}</code>
                       )
                     }
                   }}

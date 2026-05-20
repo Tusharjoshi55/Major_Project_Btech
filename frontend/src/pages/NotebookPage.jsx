@@ -295,88 +295,135 @@ export default function NotebookPage() {
             </div>
           )}
 
-          <ScrollArea className="flex-1">
-            <div className="p-3 space-y-1.5">
+          <ScrollArea className="w-full flex-1 min-h-0">
+            <div className="p-3 space-y-1.5 w-full max-w-full min-w-0 flex flex-col">
+
               {sourcesLoading ? (
                 <div className="space-y-2">
                   {[1, 2, 3].map(i => <div key={i} className="h-12 rounded-lg bg-muted animate-pulse" />)}
                 </div>
-              ) : sources.length === 0 ? (
-                <div className="flex flex-col items-center justify-center text-center py-10 px-4 opacity-50">
-                  <FileText className="h-10 w-10 mb-3 text-muted-foreground" />
-                  <p className="text-sm font-medium">No sources yet</p>
-                  <p className="text-xs mt-1">Upload a PDF or Audio file to begin training your AI.</p>
-                </div>
               ) : (
-                sources.map(src => {
-                  const Icon = FILE_ICONS[src.file_type] || FileText;
-                  return (
-                    <div
-                      key={src.id}
-                      className="flex items-center gap-3 rounded-lg px-3 py-2.5 bg-card border shadow-sm hover:shadow-md hover:border-primary/30 transition-all group text-sm relative overflow-hidden"
-                    >
-                      <div className="h-8 w-8 rounded bg-muted/50 flex items-center justify-center shrink-0">
-                        <Icon className={`h-4 w-4 ${src.file_type === 'pdf' ? 'text-rose-500' : src.file_type === 'mp3' ? 'text-blue-500' : 'text-emerald-500'}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="truncate text-xs font-medium text-foreground/90">{src.title}</p>
-                        <Badge variant={STATUS_COLORS[src.status]} className="text-[9px] px-1.5 py-0 bg-opacity-10 mt-0.5">
-                          {src.status === 'processing' ? 'Processing...' : src.status}
-                        </Badge>
-                      </div>
-                      <Button
-                        variant="ghost" size="icon"
-                        className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0 text-destructive hover:bg-destructive/10 transition-opacity absolute right-2"
-                        onClick={() => deleteSrc.mutate(src.id)}
+                sources.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center text-center py-10 px-4 opacity-50">
+                    <FileText className="h-10 w-10 mb-3 text-muted-foreground" />
+                    <p className="text-sm font-medium">No sources yet</p>
+                    <p className="text-xs mt-1">Upload a PDF or Audio file to begin training your AI.</p>
+                  </div>
+                ) : (
+                  sources.map(src => {
+                    const Icon = FILE_ICONS[src.file_type] || FileText;
+
+                    return (
+                      <div
+                        key={src.id}
+                        className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 bg-card border shadow-sm hover:shadow-md hover:border-primary/30 transition-all group text-sm relative overflow-hidden"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  );
-                })
+                        <div className="h-8 w-8 rounded bg-muted/50 flex items-center justify-center shrink-0">
+                          <Icon className={`h-4 w-4 ${src.file_type === "pdf" ? "text-rose-500" : src.file_type === "mp3" ? "text-blue-500" : "text-emerald-500"}`} />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate text-xs font-medium text-foreground/90">{src.title}</p>
+                          <Badge variant={STATUS_COLORS[src.status]} className="text-[9px] px-1.5 py-0 bg-opacity-10 mt-0.5">
+                            {src.status === "processing" ? "Processing..." : src.status}
+                          </Badge>
+
+                          {/* Show Summary Link (NEW) */}
+                          {src.metadata?.summaries?.length > 0 && (
+                            <span
+                              className="block text-[9px] font-medium text-blue-600 dark:text-blue-300 mt-1 cursor-pointer hover:underline"
+                              onClick={() => {
+                                // TODO: Open summary modal later
+                                console.log("Summary click", src);
+                              }}
+                            >
+                              📊 View Summary
+                            </span>
+                          )}
+
+                          {/* Show Timeline Link (NEW) */}
+                          {src.metadata?.timeline?.length > 0 && (
+                            <span
+                              className="block text-[9px] font-medium text-purple-600 dark:text-purple-300 mt-1 cursor-pointer hover:underline"
+                              onClick={() => {
+                                // TODO: Open timeline modal later
+                                console.log("Timeline click", src);
+                              }}
+                            >
+                              ⏱️ View Timeline
+                            </span>
+                          )}
+                        </div>
+
+                        <Button
+                          variant="ghost" size="icon"
+                          className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0 text-destructive hover:bg-destructive/10 transition-opacity absolute right-2"
+                          onClick={() => deleteSrc.mutate(src.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    );
+                  })
+                )
               )}
             </div>
           </ScrollArea>
 
+
           {/* Chat Sessions (Bottom half of left sidebar) */}
-          <div className="px-4 h-10 border-t border-b flex items-center justify-between shrink-0 bg-background/50 backdrop-blur scroll-m-2">
+
+          <div className="px-4 h-12 flex items-center justify-between shrink-0 bg-background/50 backdrop-blur pb-2 pt-2 border-t border-b scroll-m-2">
             <span className="text-sm font-semibold tracking-wide">Chats</span>
             <Button
               variant="ghost" size="icon"
-              className="h-7 w-7 rounded-full hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
+              className="h-8 w-8 rounded-full hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
               onClick={() => { clearSession(); }}
             >
               <Plus className="h-4 w-4" />
             </Button>
           </div>
-          <ScrollArea className="h-2/5 border-t-0 flex-shrink-0">
-            <div className="p-3 space-y-1.5">
-              {sessions.length === 0 ? (
-                <div className="flex flex-col items-center justify-center text-center py-6 px-4 opacity-50">
-                  <MessageSquare className="h-8 w-8 mb-2 text-muted-foreground" />
-                  <p className="text-xs font-medium">No chats yet</p>
+
+          <ScrollArea className="w-full flex-1 min-h-0 border-t-0">
+            <div className="p-3 space-y-1.5 w-full max-w-full min-w-0 flex flex-col">
+              {sessionsLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map(i => <div key={i} className="h-12 rounded-lg bg-muted animate-pulse" />)}
                 </div>
               ) : (
-                sessions.map(s => (
-                  <div
-                    key={s.id}
-                    className={`group relative flex items-center p-2 rounded-lg border transition-all cursor-pointer hover:shadow-sm ${sessionId === s.id ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-card hover:border-primary/30'}`}
-                    onClick={() => { loadSession(s.id); }}
-                  >
-                    <div className="flex-1 min-w-0 pr-6">
-                      <p className="text-[12px] font-medium truncate text-foreground/90">{s.first_message || "Untitled Chat"}</p>
-                      <p className="text-[10px] text-muted-foreground truncate">{new Date(s.created_at).toLocaleDateString()}</p>
-                    </div>
-                    <Button
-                      variant="ghost" size="icon"
-                      className="h-6 w-6 absolute right-1.5 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10 shrink-0"
-                      onClick={(e) => { e.stopPropagation(); deleteSession.mutate(s.id); if (sessionId === s.id) clearSession(); }}
-                      title="Delete chat session"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                sessions.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center text-center py-10 px-4 opacity-50">
+                    <MessageSquare className="h-10 w-10 mb-3 text-muted-foreground" />
+                    <p className="text-sm font-medium">No chats yet</p>
+                    <p className="text-xs mt-1">Click the + button to start a new chat session.</p>
                   </div>
-                ))
+                ) : (
+                  sessions.map(s => (
+                    <div
+                      key={s.id}
+                      className={`w-full max-w-60 flex items-center gap-3 rounded-lg px-1 py-2 bg-card border shadow-sm hover:shadow-md transition-all group text-sm relative overflow-hidden cursor-pointer ${sessionId === s.id ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'hover:border-primary/30'}`}
+                      onClick={() => { loadSession(s.id); }}
+                    >
+                      <div className="h-8 w-8 rounded bg-muted/50 flex items-center justify-center shrink-0">
+                        <MessageSquare className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate text-xs font-medium text-foreground/90">{s.first_message || "Untitled Chat"}</p>
+                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-opacity-10 mt-0.5">
+                          {new Date(s.created_at).toLocaleDateString()}
+                        </Badge>
+                      </div>
+                      <Button
+                        variant="ghost" size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0 text-destructive hover:bg-destructive/10 transition-opacity absolute right-2"
+                        onClick={(e) => { e.stopPropagation(); deleteSession.mutate(s.id); if (sessionId === s.id) clearSession(); }}
+                        title="Delete chat session"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))
+                )
               )}
             </div>
           </ScrollArea>

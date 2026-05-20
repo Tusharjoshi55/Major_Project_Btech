@@ -6,28 +6,36 @@ import { toast } from 'sonner';
 export const useChatSessions = (notebookId) => {
   return useQuery({
     queryKey: ['chat-sessions', notebookId],
-    queryFn:  () => chatApi.getSessions(notebookId),
-    enabled:  !!notebookId,
+    queryFn: () => chatApi.getSessions(notebookId),
+    enabled: !!notebookId,
   });
 };
 
 export const useChatHistory = (sessionId) => {
   return useQuery({
     queryKey: ['chat-history', sessionId],
-    queryFn:  () => chatApi.getHistory(sessionId),
-    enabled:  !!sessionId,
+    queryFn: () => chatApi.getHistory(sessionId),
+    enabled: !!sessionId,
   });
 };
 
 export const useChat = (notebookId) => {
   const qc = useQueryClient();
   const [sessionId, setSessionId] = useState(null);
-  const [messages, setMessages]   = useState([]);
+  const [messages, setMessages] = useState([]);
   // Ref keeps the pending user message text available in onSuccess
   const pendingMessageRef = useRef(null);
 
   const sendMutation = useMutation({
-    mutationFn: (message) => chatApi.send(notebookId, message, sessionId),
+    mutationFn: (message) => {
+      let finalMessage = message;
+      const lower = message.toLowerCase();
+      // If user asks for summary, prepend a clear instruction to the final message
+      if (lower.includes('summarize') || lower.includes('summary') || lower.includes('overview') || lower.includes('synopsis')) {
+        finalMessage = "REQUEST: Generate a comprehensive, professionally structured summary of the documents. Please organize the response strictly as follows:\n\n1. **Executive Overview**: A detailed introductory paragraph.\n2. **Core Concepts & Key Topics**: Bold headings dividing different subjects.\n3. **Crucial Bullet Points**: Point-by-point breakdown detailing key facts.\n4. **Main Takeaway**: A distinct blockquote highlight (using `>`).\n5. **Conclusion**: A formal closing summary paragraph.\n\n" + finalMessage;
+      }
+      return chatApi.send(notebookId, finalMessage, sessionId);
+    },
     onMutate: async (message) => {
       pendingMessageRef.current = message;
       // Optimistically add user message with a temp ID
@@ -101,7 +109,7 @@ export const useDeleteSession = (notebookId) => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: chatApi.deleteSession,
-    onSuccess:  () => qc.invalidateQueries({ queryKey: ['chat-sessions', notebookId] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat-sessions', notebookId] }),
   });
 };
 

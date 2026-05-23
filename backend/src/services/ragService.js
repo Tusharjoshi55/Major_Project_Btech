@@ -25,7 +25,7 @@ export const retrieve = async (query, notebookId, topK = 6) => {
       console.error("OpenRouter Embedding Error:", embResponse);
       throw new Error("Failed to generate embeddings from OpenRouter: No data returned.");
     }
-    
+
     queryEmbedding = embResponse.data[0].embedding;
   } catch (error) {
     console.error("Embedding Retrieval Error:", error.message || error);
@@ -57,38 +57,87 @@ export const retrieve = async (query, notebookId, topK = 6) => {
 };
 
 /**
- * Builds a grounded system prompt injecting retrieved context
- * with citation labels for each chunk.
+ * Builds a grounded system prompt injecting retrieved context and web search context.
  *
  * @param {Array} retrievedChunks — from retrieve()
+ * @param {Array} webResults — from webSearchService.search()
  * @returns {string} system prompt
  */
-export const buildGroundedPrompt = (retrievedChunks) => {
-  if (!retrievedChunks.length) {
-    return `You are a helpful research assistant. 
-No relevant source content was found for this query. 
-Tell the user you couldn't find relevant information in their uploaded sources.`;
+export const buildGroundedPrompt = (retrievedChunks = [], webResults = []) => {
+  const contextBlocks = [];
+  if (retrievedChunks && retrievedChunks.length > 0) {
+    retrievedChunks.forEach((chunk, i) => {
+      const label = chunk.file_type === 'pdf'
+        ? `[Source ${i + 1}: "${chunk.source_title}", Page ${chunk.page_number ?? '?'}]`
+        : `[Source ${i + 1}: "${chunk.source_title}" @ ${formatTimestamp(chunk.timestamp_start)}]`;
+
+      contextBlocks.push(`${label}\n${chunk.content}`);
+    });
   }
 
-  const contextBlocks = retrievedChunks.map((chunk, i) => {
-    const label = chunk.file_type === 'pdf'
-      ? `[Source ${i + 1}: "${chunk.source_title}", Page ${chunk.page_number ?? '?'}]`
-      : `[Source ${i + 1}: "${chunk.source_title}" @ ${formatTimestamp(chunk.timestamp_start)}]`;
+  const webBlocks = [];
+  if (webResults && webResults.length > 0) {
+    webResults.forEach((result, i) => {
+      const label = `[Web Source ${i + 1}: "${result.title}", URL: ${result.url}]`;
+      webBlocks.push(`${label}\n${result.snippet}`);
+    });
+  }
 
-    return `${label}\n${chunk.content}`;
-  });
+  if (contextBlocks.length === 0 && webBlocks.length === 0) {
+    return `You are a helpful research assistant. 
+No relevant local source content or web search results were found for this query. 
+Tell the user you couldn't find relevant information in their uploaded sources or on the web.`;
+  }
 
-  return `You are a helpful research assistant with access to the user's uploaded sources.
+  let instructionText = `You are a helpful research assistant with access to the user's uploaded sources and real-time web search capability.`;
+
+  if (contextBlocks.length > 0 && webBlocks.length > 0) {
+    instructionText += `
 
 INSTRUCTIONS:
-1. Answer using ONLY the context provided below.
+1. Answer the user's question using the provided Local Sources first.
+2. If the local sources do not contain sufficient detail or are missing requested facts, use the provided Web Search Results to enhance and complete the answer.
+3. Cite claims from local sources using the exact label (e.g. [Source 1: "filename.pdf", Page 3]).
+4. Cite claims from web search using the exact web source label (e.g. [Web Source 1: "Title", URL: http://...]).
+5. Clearly distinguish between local source information and web search information where appropriate.
+6. Use markdown formatting.`;
+  } else if (contextBlocks.length > 0) {
+    instructionText += `
+
+INSTRUCTIONS:
+1. Answer using ONLY the Local Sources provided below.
 2. Cite every claim using the exact source label shown (e.g. [Source 1: "filename.pdf", Page 3]).
 3. If multiple sources support a claim, cite all of them.
 4. If the answer is not in the context, say: "I couldn't find that information in your sources."
-5. Be concise but thorough. Use markdown formatting.
+5. Be concise but thorough. Use markdown formatting.`;
+  } else {
+    instructionText += `
 
-SOURCES:
+INSTRUCTIONS:
+1. We could not find any relevant information in the user's uploaded documents.
+2. Answer the query thoroughly using the provided real-time Web Search Results.
+3. Cite claims from web search using the exact web source label (e.g. [Web Source 1: "Title", URL: http://...]).
+4. Politely mention to the user that you couldn't find this information in their uploaded documents, but found it via real-time web search.
+5. Use markdown formatting.`;
+  }
+
+  let prompt = instructionText;
+
+  if (contextBlocks.length > 0) {
+    prompt += `
+
+LOCAL SOURCES:
 ${contextBlocks.join('\n\n---\n\n')}`;
+  }
+
+  if (webBlocks.length > 0) {
+    prompt += `
+
+WEB SEARCH RESULTS (REAL-TIME):
+${webBlocks.join('\n\n---\n\n')}`;
+  }
+
+  return prompt;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────

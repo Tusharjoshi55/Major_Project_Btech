@@ -1,6 +1,7 @@
 import pool from '../config/db.js';
 import openai from '../config/openai.js';
 import * as ragService from '../services/ragService.js';
+import * as webSearchService from '../services/webSearchService.js';
 
 // POST /api/chat
 export const sendMessage = async (req, res, next) => {
@@ -38,7 +39,16 @@ export const sendMessage = async (req, res, next) => {
     const chunks = await ragService.retrieve(message, notebookId);
     console.log(`📚 [CHAT] Found ${chunks.length} relevant chunks`);
 
-    const systemPrompt = ragService.buildGroundedPrompt(chunks);
+    const maxSimilarity = chunks.length > 0 ? chunks[0].similarity : 0;
+    let webResults = [];
+
+    // Trigger web search enhancement if no chunks matched, or if similarity is below threshold
+    if (chunks.length === 0 || maxSimilarity < 0.45) {
+      console.log(`🌐 [CHAT] PDF similarity too low (${maxSimilarity.toFixed(2)}) or no chunks found. Triggering Web Search...`);
+      webResults = await webSearchService.search(message);
+    }
+
+    const systemPrompt = ragService.buildGroundedPrompt(chunks, webResults);
 
     // Load last 10 messages for context
     const { rows: history } = await pool.query(
@@ -73,6 +83,19 @@ export const sendMessage = async (req, res, next) => {
       page_number: c.page_number ?? null,
       timestamp_start: c.timestamp_start ?? null,
     }));
+
+    // Inject web search results as citations if used
+    if (webResults && webResults.length > 0) {
+      webResults.forEach(r => {
+        citations.push({
+          source_id: 'web',
+          title: r.title,
+          file_type: 'web',
+          url: r.url,
+          snippet: r.snippet
+        });
+      });
+    }
 
     // Save assistant reply with citations
     const { rows: savedMsg } = await pool.query(

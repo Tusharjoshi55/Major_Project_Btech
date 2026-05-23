@@ -217,12 +217,7 @@ erDiagram
 ## 🌊 In-Depth Core Subsystems
 
 ### 1. Advanced RAG & Vector Pipeline
-
-The Retrieval-Augmented Generation (RAG) pipeline is the core of the system's AI capability. When a user uploads a PDF, the backend extracts text page-by-page using pdf-parse, splits it into overlapping 500-token chunks with a 50-token stride, and generates 1,536-dimensional vector embeddings using OpenAI's text-embedding-3-small model. These embeddings are stored in a pgvector column (vector(1536)) and indexed for cosine similarity search.
-
-At query time, the user's message is embedded using the same model. The five most semantically similar chunks are retrieved from the database using an approximate nearest-neighbour search (<=> cosine operator). These chunks, together with their source metadata (file name, page number, timestamp), are injected into a grounded prompt template sent to GPT-4o-mini. The model is explicitly instructed to answer only from the retrieved context and to cite specific pages and timestamps.
-
-Rather than performing naive vector matches, the platform executes an advanced, multi-stage retrieval strategy:
+Rather than performing naive vector matches, the platform executes a advanced, multi-stage retrieval strategy:
 
 * **Overlapping Text Windows**: PDFs are divided page-by-page. Content is then split into overlapping chunks (~1000 characters per chunk with a 200-character backward overlap) to maintain paragraph context across margins.
 * **Query Expansion**: User queries are analyzed and expanded on the fly using synonym injection:

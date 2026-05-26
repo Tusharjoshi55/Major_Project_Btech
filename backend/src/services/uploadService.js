@@ -105,7 +105,7 @@ export const processSource = async (sourceId, fileUrl, fileType, localPath) => {
     // ── Auto-Generate Overview Note ──
     try {
       console.log(`  📝 Generating automatic overview note...`);
-      const sampleText = chunks.slice(0, 3).map(c => c.content).join('\\n\\n');
+      const sampleText = chunks.slice(0, 3).map(c => c.content).join('\n\n');
       const overview = await openai.chat.completions.create({
         model: 'google/gemini-2.0-flash-lite-001',
         messages: [
@@ -115,13 +115,14 @@ export const processSource = async (sourceId, fileUrl, fileType, localPath) => {
         max_tokens: 300
       });
       const noteContent = overview.choices[0]?.message?.content || 'No summary generated.';
-      
-      const { rows: sourceInfo } = await pool.query(`SELECT title FROM sources WHERE id=$1`, [sourceId]);
+
+      const { rows: sourceInfo } = await pool.query(`SELECT title, user_id FROM sources WHERE id=$1`, [sourceId]);
       const title = `Overview: ${sourceInfo[0]?.title}`;
+      const userId = sourceInfo[0]?.user_id;
 
       await pool.query(
-        `INSERT INTO notes (notebook_id, title, content) VALUES ($1, $2, $3)`,
-        [notebookId, title, noteContent]
+        `INSERT INTO notes (notebook_id, user_id, title, content) VALUES ($1, $2, $3, $4)`,
+        [notebookId, userId, title, noteContent]
       );
       console.log(`  ✅ Overview Note created.`);
     } catch (e) {
